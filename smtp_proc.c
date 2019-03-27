@@ -1,4 +1,5 @@
 #include <sys/time.h>
+#include <sys/tree.h>
 #include <sys/socket.h>
 
 #include <arpa/inet.h>
@@ -21,6 +22,8 @@ typedef int (*smtp_cb)(char *, int, time_t, char *, char *, uint64_t, uint64_t,
     void *);
 
 struct smtp_callback;
+struct smtp_request;
+RB_HEAD(smtp_requests, smtp_request) smtp_requests;
 
 static int smtp_register(char *, char *, char *, smtp_cb);
 static void smtp_newline(int, short, void *);
@@ -56,6 +59,14 @@ static void smtp_commit(struct smtp_callback *, int, time_t, uint64_t, uint64_t,
     char *);
 static void smtp_handle_filter(struct smtp_callback *, int, time_t, uint64_t,
     uint64_t, void *);
+static int smtp_request_cmp(struct smtp_request *, struct smtp_request *);
+RB_PROTOTYPE_STATIC(smtp_requests, smtp_request, entry, smtp_request_cmp);
+
+struct smtp_request {
+	uint64_t reqid;
+	uint64_t token;
+	RB_ENTRY(smtp_request) entry;
+};
 
 struct smtp_callback {
 	char *type;
@@ -292,8 +303,8 @@ smtp_commit(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
 }
 
 static void
-smtp_handle(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
-    uint64_t token, void *params)
+smtp_handle_filter(struct smtp_callback *cb, int version, time_t tm,
+    uint64_t reqid, uint64_t token, void *params)
 {
 	enum filter_decision fdes;
 
@@ -374,9 +385,9 @@ smtp_register(char *type, char *phase, char *direction, smtp_cb cb)
 {
 	int i;
 
-	if (ready) {
+	if (ready)
 		errx(1, "Can't register when proc is running");
-	}
+
 	for (i = 0; i < NITEMS(smtp_callbacks); i++) {
 		if (strcmp(type, smtp_callbacks[i].type) == 0 &&
 		    strcmp(phase, smtp_callbacks[i].phase) == 0 &&
@@ -393,3 +404,11 @@ smtp_register(char *type, char *phase, char *direction, smtp_cb cb)
 	errno = EINVAL;
 	return -1;
 }
+
+static int
+smtp_request_cmp(struct smtp_request *r1, struct smtp_request *r2)
+{
+	return r1->reqid - r2->reqid;
+}
+
+RB_GENERATE_STATIC(smtp_requests, smtp_request, entry, smtp_request_cmp);
