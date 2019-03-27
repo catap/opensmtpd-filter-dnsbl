@@ -13,7 +13,7 @@
 static char **blacklists = NULL;
 static size_t nblacklists = 0;
 int retries = 0;
-enum filter_decision onfailure = FILTER_PROCEED;
+int reject_onfailure = 0;
 
 void usage(void);
 enum filter_decision dnsbl_connect(char *, int, time_t, char *, char *,
@@ -46,16 +46,7 @@ main(int argc, char *argv[])
 			nblacklists++;
 			break;
 		case 'f':
-			if (strcasecmp(optarg, "proceed") == 0)
-				onfailure = FILTER_PROCEED;
-			else if (strcasecmp(optarg, "reject") == 0)
-				onfailure = FILTER_REJECT;
-			else if (strcasecmp(optarg, "disconnect") == 0)
-				onfailure = FILTER_DISCONNECT;
-			else if (strcasecmp(optarg, "rewrite") == 0)
-				onfailure = FILTER_REWRITE;
-			else
-				errx(1, "Invalid on failure case");
+			reject_onfailure = 1;
 		case 'r':
 			if ((retries = strtonum(optarg, 0, 10, &errstr)) == 0 &&
 			    errstr != NULL)
@@ -83,7 +74,7 @@ dnsbl_connect(char *type, int version, time_t tm, char *direction, char *phase,
 	char reply[1500];
 	struct hostent *hent;
 	u_char *addr;
-	int i;
+	int i, try;
 
 	addr = (u_char *)&(params->addr);
 	for (i = 0; i < nblacklists; i++) {
@@ -117,17 +108,28 @@ dnsbl_connect(char *type, int version, time_t tm, char *direction, char *phase,
 				errx(1, "Can't create query, domain too long");
 		} else
 			errx(1, "Invalid address family received");
-	}
 
-	for (i = -1; i < retries; i++) {
-		if ((hent = gethostbyname(query)) == NULL) {
-			if (h_errno == HOST_NOT_FOUND)
-				return FILTER_PROCEED;
-			if (h_errno != TRY_AGAIN)
-				return onfailure;
+		for (try = -1; try < retries; try++) {
+			if ((hent = gethostbyname(query)) == NULL) {
+				if (h_errno == HOST_NOT_FOUND)
+					break;
+				if (h_errno != TRY_AGAIN) {
+					if (!reject_onfailure)
+						break;
+					else
+						smtp_filter_disconnect(reqid,
+						    token,
+						    "Blacklist check failed");
+						return FILTER_DISCONNECT;
+				}
+			} else {
+				smtp_filter_disconnect(reqid, token,
+				    "Listed at %s", blacklists[i]);
+				return FILTER_DISCONNECT;
+			}
 		}
 	}
-	return FILTER_REJECT;
+	return FILTER_PROCEED;
 }
 
 void
