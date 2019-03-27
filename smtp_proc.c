@@ -261,6 +261,3 @@ smtp_register(char *type, char *phase, char *direction, smtp_cb cb)
 	errno = EINVAL;
 	return -1;
 }
-
-
-//filter|1|1553668146|smtp-in|connect|478cc771bf86f378|5161a9ce4540b4d1|<unknown>|100.64.7.2
