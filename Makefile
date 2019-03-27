@@ -4,4 +4,7 @@ PROG=	dnsbl
 BINDIR=	/usr/bin
 SRCS+=	main.c smtp_proc.c
 
+LDADD+=	-levent
+DPADD=	${LIBEVENT}
+
 .include <bsd.prog.mk>

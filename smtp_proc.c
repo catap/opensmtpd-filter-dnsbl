@@ -4,11 +4,14 @@
 #include <arpa/inet.h>
 #include <err.h>
 #include <errno.h>
+#include <event.h>
+#include <fcntl.h>
 #include <inttypes.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "smtp_proc.h"
 
@@ -20,7 +23,20 @@ typedef int (*smtp_cb)(char *, int, time_t, char *, char *, uint64_t, uint64_t,
 struct smtp_callback;
 
 static int smtp_register(char *, char *, char *, smtp_cb);
+static void smtp_newline(int, short, void *);
 static void smtp_connect(struct smtp_callback *, int, time_t, uint64_t,
+    uint64_t, char *);
+static void smtp_helo(struct smtp_callback *, int, time_t, uint64_t, uint64_t,
+    char *);
+static void smtp_ehlo(struct smtp_callback *, int, time_t, uint64_t, uint64_t,
+    char *);
+static void smtp_starttls(struct smtp_callback *, int, time_t, uint64_t,
+    uint64_t, char *);
+static void smtp_auth(struct smtp_callback *, int, time_t, uint64_t, uint64_t,
+    char *);
+static void smtp_mail_from(struct smtp_callback *, int, time_t, uint64_t,
+    uint64_t, char *);
+static void smtp_rcpt_to(struct smtp_callback *, int, time_t, uint64_t,
     uint64_t, char *);
 static void smtp_data(struct smtp_callback *, int, time_t, uint64_t, uint64_t,
     char *);
@@ -38,8 +54,8 @@ static void smtp_wiz(struct smtp_callback *, int, time_t, uint64_t, uint64_t,
     char *);
 static void smtp_commit(struct smtp_callback *, int, time_t, uint64_t, uint64_t,
     char *);
-static void smtp_handle(struct smtp_callback *, int, time_t, uint64_t, uint64_t,
-    void *);
+static void smtp_handle_filter(struct smtp_callback *, int, time_t, uint64_t,
+    uint64_t, void *);
 
 struct smtp_callback {
 	char *type;
@@ -49,15 +65,21 @@ struct smtp_callback {
 	    uint64_t, char *);
 	smtp_cb cb;
 } smtp_callbacks[] = {
-	{"filter", "connect", "smtp-in", smtp_connect, NULL},
-	{"filter", "data", "smtp-in", smtp_data, NULL},
-	{"filter", "data-line", "smtp-in", smtp_data_line, NULL},
-	{"filter", "rset", "smtp-in", smtp_rset, NULL},
-	{"filter", "quit", "smtp-in", smtp_quit, NULL},
-	{"filter", "noop", "smtp-in", smtp_noop, NULL},
-	{"filter", "help", "smtp-in", smtp_help, NULL},
-	{"filter", "wiz", "smtp-in", smtp_wiz, NULL},
-	{"filter", "commit", "smtp-in", smtp_commit, NULL}
+        {"filter", "connect", "smtp-in", smtp_connect, NULL},
+        {"filter", "helo", "smtp-in", smtp_helo, NULL},
+        {"filter", "ehlo", "smtp-in", smtp_ehlo, NULL},
+        {"filter", "starttls", "smtp-in", smtp_starttls, NULL},
+        {"filter", "auth", "smtp-in", smtp_auth, NULL},
+        {"filter", "mail-from", "smtp-in", smtp_mail_from, NULL},
+        {"filter", "rcpt-to", "smtp-in", smtp_rcpt_to, NULL},
+        {"filter", "data", "smtp-in", smtp_data, NULL},
+        {"filter", "data-line", "smtp-in", smtp_data_line, NULL},
+        {"filter", "rset", "smtp-in", smtp_rset, NULL},
+        {"filter", "quit", "smtp-in", smtp_quit, NULL},
+        {"filter", "noop", "smtp-in", smtp_noop, NULL},
+        {"filter", "help", "smtp-in", smtp_help, NULL},
+        {"filter", "wiz", "smtp-in", smtp_wiz, NULL},
+        {"filter", "commit", "smtp-in", smtp_commit, NULL}
 };
 
 static int ready = 0;
@@ -73,6 +95,26 @@ smtp_register_filter_connect(enum filter_decision (*cb)(char *, int, time_t,
 void
 smtp_run(void)
 {
+	struct event stdinev;
+
+	printf("register|ready\n");
+	ready = 1;
+
+	event_init();
+	event_set(&stdinev, STDIN_FILENO, EV_READ | EV_PERSIST, smtp_newline,
+	    &stdinev);
+	event_add(&stdinev, NULL);
+
+	if (fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK) == -1)
+		err(1, "fcntl");
+
+	event_dispatch();
+}
+
+static void
+smtp_newline(int fd, short event, void *arg)
+{
+	struct event *stdinev = (struct event *)arg;
 	char *line = NULL;
 	size_t linesize = 0;
 	ssize_t linelen;
@@ -81,9 +123,6 @@ smtp_run(void)
 	time_t tm;
 	uint64_t reqid, token;
 	int i;
-
-	printf("register|ready\n");
-	ready = 1;
 
 	while ((linelen = getline(&line, &linesize, stdin)) != -1) {
 		if (line[linelen - 1] != '\n')
@@ -135,6 +174,8 @@ smtp_run(void)
 		smtp_callbacks[i].smtp_parse(&(smtp_callbacks[i]), version, tm,
 		    reqid, token, params);
 	}
+	if (feof(stdin) || (ferror(stdin) && errno != EAGAIN))
+		event_del(stdinev);
 }
 
 static void
@@ -163,7 +204,43 @@ smtp_connect(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
 	if (ret == -1)
 		err(1, "Couldn't convert address");
 
-	smtp_handle(cb, version, tm, reqid, token, (void *)(&sfconnect));
+	smtp_handle_filter(cb, version, tm, reqid, token, (void *)(&sfconnect));
+}
+
+static void
+smtp_helo(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
+    uint64_t token, char *params)
+{
+}
+
+static void
+smtp_ehlo(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
+    uint64_t token, char *params)
+{
+}
+
+static void
+smtp_starttls(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
+    uint64_t token, char *params)
+{
+}
+
+static void
+smtp_auth(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
+    uint64_t token, char *params)
+{
+}
+
+static void
+smtp_mail_from(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
+    uint64_t token, char *params)
+{
+}
+
+static void
+smtp_rcpt_to(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
+    uint64_t token, char *params)
+{
 }
 
 static void 
