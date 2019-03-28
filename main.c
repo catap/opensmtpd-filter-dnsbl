@@ -18,6 +18,7 @@ struct dnsbl_session;
 struct dnsbl_query {
 	struct asr_query *query;
 	struct event_asr *event;
+	struct event timeout;
 	int resolved;
 	int blacklist;
 	struct dnsbl_session *session;
@@ -36,6 +37,7 @@ void usage(void);
 void dnsbl_connect(char *, int, struct timespec *, char *, char *, uint64_t,
     uint64_t, struct smtp_filter_connect *);
 void dnsbl_resolve(struct asr_result *, void *);
+void dnsbl_timeout(int, short, void *);
 void dnsbl_session_free(struct dnsbl_session *);
 
 int
@@ -84,6 +86,7 @@ dnsbl_connect(char *type, int version, struct timespec *tm, char *direction,
     struct smtp_filter_connect *params)
 {
 	struct dnsbl_session *session;
+	struct timeval timeout = {1, 0};
 	char query[255];
 	u_char *addr;
 	int i, try;
@@ -134,6 +137,9 @@ dnsbl_connect(char *type, int version, struct timespec *tm, char *direction,
 		    dnsbl_resolve, &(session->query[i]));
 		session->query[i].blacklist = i;
 		session->query[i].session = session;
+		evtimer_set(&(session->query[i].timeout), dnsbl_timeout,
+		    &(session->query[i]));
+		evtimer_add(&(session->query[i].timeout), &timeout);
 	}
 }
 
@@ -147,6 +153,7 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 	query->resolved = 1;
 	query->event = NULL;
 	query->query = NULL;
+	evtimer_del(&(query->timeout));
 	if (result->ar_hostent != NULL) {
 		smtp_filter_disconnect(session->reqid, session->token,
 		    "Host listed at %s", blacklists[query->blacklist]);
@@ -155,7 +162,7 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 	}
 	if (result->ar_h_errno != HOST_NOT_FOUND) {
 		smtp_filter_disconnect(session->reqid, session->token,
-		    "DNS error");
+		    "DNS error on %s", blacklists[query->blacklist]);
 		dnsbl_session_free(session);
 		return;
 	}
@@ -169,13 +176,26 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 }
 
 void
+dnsbl_timeout(int fd, short event, void *arg)
+{
+	struct dnsbl_query *query = arg;
+	struct dnsbl_session *session = query->session;
+
+	smtp_filter_disconnect(session->reqid, session->token,
+	    "DNS timeout on %s", blacklists[query->blacklist]);
+	dnsbl_session_free(session);
+}
+
+void
 dnsbl_session_free(struct dnsbl_session *session)
 {
 	int i;
 
 	for (i = 0; i < nblacklists; i++) {
-		if (!session->query[i].resolved)
+		if (!session->query[i].resolved) {
 			event_asr_abort(session->query[i].event);
+			evtimer_del(&(session->query[i].timeout));
+		}
 	}
 	free(session->query);
 	free(session);
