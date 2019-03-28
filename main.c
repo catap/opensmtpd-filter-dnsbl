@@ -33,8 +33,8 @@ static char **blacklists = NULL;
 static size_t nblacklists = 0;
 
 void usage(void);
-void dnsbl_connect(char *, int, time_t, char *, char *, uint64_t, uint64_t,
-    struct smtp_filter_connect *);
+void dnsbl_connect(char *, int, struct timespec *, char *, char *, uint64_t,
+    uint64_t, struct smtp_filter_connect *);
 void dnsbl_resolve(struct asr_result *, void *);
 void dnsbl_session_free(struct dnsbl_session *);
 
@@ -79,8 +79,9 @@ main(int argc, char *argv[])
 }
 
 void
-dnsbl_connect(char *type, int version, time_t tm, char *direction, char *phase,
-    uint64_t reqid, uint64_t token, struct smtp_filter_connect *params)
+dnsbl_connect(char *type, int version, struct timespec *tm, char *direction,
+    char *phase, uint64_t reqid, uint64_t token,
+    struct smtp_filter_connect *params)
 {
 	struct dnsbl_session *session;
 	char query[255];
