@@ -18,8 +18,8 @@
 
 #define NITEMS(x) (sizeof(x) / sizeof(*x))
 
-typedef int (*smtp_cb)(char *, int, time_t, char *, char *, uint64_t, uint64_t,
-    void *);
+typedef int (*smtp_cb)(char *, int, struct timespec *, char *, char *, uint64_t,
+    uint64_t, void *);
 
 struct smtp_callback;
 struct smtp_request;
@@ -27,10 +27,10 @@ RB_HEAD(smtp_requests, smtp_request) smtp_requests;
 
 static int smtp_register(char *, char *, char *, smtp_cb);
 static void smtp_newline(int, short, void *);
-static void smtp_connect(struct smtp_callback *, int, time_t, uint64_t,
-    uint64_t, char *);
-static void smtp_handle_filter(struct smtp_callback *, int, time_t, uint64_t,
-    uint64_t, void *);
+static void smtp_connect(struct smtp_callback *, int, struct timespec *,
+    uint64_t, uint64_t, char *);
+static void smtp_handle_filter(struct smtp_callback *, int, struct timespec *,
+    uint64_t, uint64_t, void *);
 static int smtp_request_cmp(struct smtp_request *, struct smtp_request *);
 RB_PROTOTYPE_STATIC(smtp_requests, smtp_request, entry, smtp_request_cmp);
 
@@ -44,8 +44,8 @@ struct smtp_callback {
 	char *type;
 	char *phase;
 	char *direction;
-	void (*smtp_parse)(struct smtp_callback *, int, time_t, uint64_t,
-	    uint64_t, char *);
+	void (*smtp_parse)(struct smtp_callback *, int, struct timespec *,
+	    uint64_t, uint64_t, char *);
 	smtp_cb cb;
 } smtp_callbacks[] = {
         {"filter", "connect", "smtp-in", smtp_connect, NULL}
@@ -55,8 +55,8 @@ static int ready = 0;
 static int resolved = 1;
 
 int
-smtp_register_filter_connect(void (*cb)(char *, int, time_t, char *, char *,
-    uint64_t, uint64_t, struct smtp_filter_connect *))
+smtp_register_filter_connect(void (*cb)(char *, int, struct timespec *, char *,
+    char *, uint64_t, uint64_t, struct smtp_filter_connect *))
 {
 	return smtp_register("filter", "connect", "smtp-in", (smtp_cb) cb);
 }
@@ -89,7 +89,7 @@ smtp_newline(int fd, short event, void *arg)
 	ssize_t linelen;
 	char *start, *end, *type, *direction, *phase, *params;
 	int version;
-	time_t tm;
+	struct timespec tm;
 	uint64_t reqid, token;
 	int i;
 
@@ -111,9 +111,20 @@ smtp_newline(int fd, short event, void *arg)
 		if ((direction = strchr(start, '|')) == NULL)
 			errx(1, "Invalid line received: missing direction");
 		direction++[0] = '\0';
-		tm = (time_t) strtoull(start, &end, 10);
-		if (start[0] == '\0' || end[0] != '\0')
+		tm.tv_sec = (time_t) strtoull(start, &end, 10);
+		tm.tv_nsec = 0;
+		if (start[0] == '\0' || (end[0] != '\0' && end[0] != '.'))
 			errx(1, "Invalid line received: invalid timestamp");
+		if (end[0] == '.') {
+			start = end + 1;
+			tm.tv_nsec = strtol(start, &end, 10);
+			if (start[0] == '\0' || end[0] != '\0')
+				errx(1, "Invalid line received: invalid "
+				    "timestamp");
+			for (i = 9 - (end - start); i > 0; i--) {
+				tm.tv_nsec *= 10;
+			}
+		}
 		if ((phase = strchr(direction, '|')) == NULL)
 			errx(1, "Invalid line receieved: missing phase");
 		phase++[0] = '\0';
@@ -140,7 +151,7 @@ smtp_newline(int fd, short event, void *arg)
 			errx(1, "Invalid line received: received unregistered "
 			    "%s: %s", type, phase);
 		}
-		smtp_callbacks[i].smtp_parse(&(smtp_callbacks[i]), version, tm,
+		smtp_callbacks[i].smtp_parse(&(smtp_callbacks[i]), version, &tm,
 		    reqid, token, params);
 	}
 	if (feof(stdin) || (ferror(stdin) && errno != EAGAIN))
@@ -148,8 +159,8 @@ smtp_newline(int fd, short event, void *arg)
 }
 
 static void
-smtp_connect(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
-    uint64_t token, char *params)
+smtp_connect(struct smtp_callback *cb, int version, struct timespec *tm,
+    uint64_t reqid, uint64_t token, char *params)
 {
 	struct smtp_filter_connect sfconnect;
 	char *address;
@@ -177,7 +188,7 @@ smtp_connect(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
 }
 
 static void
-smtp_handle_filter(struct smtp_callback *cb, int version, time_t tm,
+smtp_handle_filter(struct smtp_callback *cb, int version, struct timespec *tm,
     uint64_t reqid, uint64_t token, void *params)
 {
 	enum filter_decision fdes;
@@ -212,7 +223,8 @@ smtp_filter_proceed(uint64_t reqid, uint64_t token)
 	if (resolved)
 		errx(1, "reqid: %016"PRIx64" token: %016"PRIx64" already "
 		    "resolved", reqid, token);
-	printf("filter-result|%016"PRIx64"|%016"PRIx64"|proceed\n", token, reqid);
+	printf("filter-result|%016"PRIx64"|%016"PRIx64"|proceed\n", token,
+	    reqid);
 	resolved = 1;
 }
 
