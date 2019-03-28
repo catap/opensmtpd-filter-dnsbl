@@ -153,6 +153,12 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 		dnsbl_session_free(session);
 		return;
 	}
+	if (result->ar_h_errno != HOST_NOT_FOUND) {
+		smtp_filter_disconnect(session->reqid, session->token,
+		    "DNS error");
+		dnsbl_session_free(session);
+		return;
+	}
 
 	for (i = 0; i < nblacklists; i++) {
 		if (!session->query[i].resolved)
