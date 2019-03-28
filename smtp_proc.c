@@ -55,8 +55,8 @@ static int ready = 0;
 static int resolved = 1;
 
 int
-smtp_register_filter_connect(enum filter_decision (*cb)(char *, int, time_t,
-    char *, char *, uint64_t, uint64_t, struct smtp_filter_connect *))
+smtp_register_filter_connect(void (*cb)(char *, int, time_t, char *, char *,
+    uint64_t, uint64_t, struct smtp_filter_connect *))
 {
 	return smtp_register("filter", "connect", "smtp-in", (smtp_cb) cb);
 }

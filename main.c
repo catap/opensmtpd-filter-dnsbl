@@ -1,21 +1,42 @@
+#include <sys/types.h>
 #include <sys/socket.h>
 
 #include <err.h>
 #include <errno.h>
+#include <event.h>
 #include <netdb.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <asr.h>
 
 #include "smtp_proc.h"
+
+struct dnsbl_session;
+
+struct dnsbl_query {
+	struct asr_query *query;
+	struct event_asr *event;
+	int resolved;
+	int blacklist;
+	struct dnsbl_session *session;
+};
+
+struct dnsbl_session {
+	uint64_t reqid;
+	uint64_t token;
+	struct dnsbl_query *query;
+};
 
 static char **blacklists = NULL;
 static size_t nblacklists = 0;
 
 void usage(void);
-enum filter_decision dnsbl_connect(char *, int, time_t, char *, char *,
-    uint64_t, uint64_t, struct smtp_filter_connect *);
+void dnsbl_connect(char *, int, time_t, char *, char *, uint64_t, uint64_t,
+    struct smtp_filter_connect *);
+void dnsbl_resolve(struct asr_result *, void *);
+void dnsbl_session_free(struct dnsbl_session *);
 
 int
 main(int argc, char *argv[])
@@ -57,15 +78,22 @@ main(int argc, char *argv[])
 	return 0;
 }
 
-enum filter_decision
+void
 dnsbl_connect(char *type, int version, time_t tm, char *direction, char *phase,
     uint64_t reqid, uint64_t token, struct smtp_filter_connect *params)
 {
+	struct dnsbl_session *session;
 	char query[255];
-	char reply[1500];
-	struct hostent *hent;
 	u_char *addr;
 	int i, try;
+
+	if ((session = calloc(1, sizeof(*session))) == NULL)
+		err(1, NULL);
+	if ((session->query = calloc(nblacklists, sizeof(*(session->query))))
+	    == NULL)
+		err(1, NULL);
+	session->reqid = reqid;
+	session->token = token;
 
 	addr = (u_char *)&(params->addr);
 	for (i = 0; i < nblacklists; i++) {
@@ -100,21 +128,50 @@ dnsbl_connect(char *type, int version, time_t tm, char *direction, char *phase,
 		} else
 			errx(1, "Invalid address family received");
 
-		if ((hent = gethostbyname(query)) == NULL) {
-			if (h_errno == HOST_NOT_FOUND)
-				break;
-			if (h_errno != TRY_AGAIN) {
-				smtp_filter_disconnect(reqid, token,
-				    "Blacklist check failed");
-				return FILTER_DISCONNECT;
-			}
-		} else {
-			smtp_filter_disconnect(reqid, token,
-			    "Listed at %s", blacklists[i]);
-			return FILTER_DISCONNECT;
-		}
+		session->query[i].query = gethostbyname_async(query, NULL);
+		session->query[i].event = event_asr_run(session->query[i].query,
+		    dnsbl_resolve, &(session->query[i]));
+		session->query[i].blacklist = i;
+		session->query[i].session = session;
 	}
-	return FILTER_PROCEED;
+}
+
+void
+dnsbl_resolve(struct asr_result *result, void *arg)
+{
+	struct dnsbl_query *query = arg;
+	struct dnsbl_session *session = query->session;
+	int i, blacklist;
+
+	query->resolved = 1;
+	query->event = NULL;
+	query->query = NULL;
+	if (result->ar_hostent != NULL) {
+		smtp_filter_disconnect(session->reqid, session->token,
+		    "Host listed at %s", blacklists[query->blacklist]);
+		dnsbl_session_free(session);
+		return;
+	}
+
+	for (i = 0; i < nblacklists; i++) {
+		if (!session->query[i].resolved)
+			return;
+	}
+	smtp_filter_proceed(session->reqid, session->token);
+	dnsbl_session_free(session);
+}
+
+void
+dnsbl_session_free(struct dnsbl_session *session)
+{
+	int i;
+
+	for (i = 0; i < nblacklists; i++) {
+		if (!session->query[i].resolved)
+			event_asr_abort(session->query[i].event);
+	}
+	free(session->query);
+	free(session);
 }
 
 __dead void
