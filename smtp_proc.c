@@ -29,34 +29,6 @@ static int smtp_register(char *, char *, char *, smtp_cb);
 static void smtp_newline(int, short, void *);
 static void smtp_connect(struct smtp_callback *, int, time_t, uint64_t,
     uint64_t, char *);
-static void smtp_helo(struct smtp_callback *, int, time_t, uint64_t, uint64_t,
-    char *);
-static void smtp_ehlo(struct smtp_callback *, int, time_t, uint64_t, uint64_t,
-    char *);
-static void smtp_starttls(struct smtp_callback *, int, time_t, uint64_t,
-    uint64_t, char *);
-static void smtp_auth(struct smtp_callback *, int, time_t, uint64_t, uint64_t,
-    char *);
-static void smtp_mail_from(struct smtp_callback *, int, time_t, uint64_t,
-    uint64_t, char *);
-static void smtp_rcpt_to(struct smtp_callback *, int, time_t, uint64_t,
-    uint64_t, char *);
-static void smtp_data(struct smtp_callback *, int, time_t, uint64_t, uint64_t,
-    char *);
-static void smtp_data_line(struct smtp_callback *, int, time_t, uint64_t,
-    uint64_t, char *);
-static void smtp_rset(struct smtp_callback *, int, time_t, uint64_t, uint64_t,
-    char *);
-static void smtp_quit(struct smtp_callback *, int, time_t, uint64_t, uint64_t,
-    char *);
-static void smtp_noop(struct smtp_callback *, int, time_t, uint64_t, uint64_t,
-    char *);
-static void smtp_help(struct smtp_callback *, int, time_t, uint64_t, uint64_t,
-    char *);
-static void smtp_wiz(struct smtp_callback *, int, time_t, uint64_t, uint64_t,
-    char *);
-static void smtp_commit(struct smtp_callback *, int, time_t, uint64_t, uint64_t,
-    char *);
 static void smtp_handle_filter(struct smtp_callback *, int, time_t, uint64_t,
     uint64_t, void *);
 static int smtp_request_cmp(struct smtp_request *, struct smtp_request *);
@@ -76,21 +48,7 @@ struct smtp_callback {
 	    uint64_t, char *);
 	smtp_cb cb;
 } smtp_callbacks[] = {
-        {"filter", "connect", "smtp-in", smtp_connect, NULL},
-        {"filter", "helo", "smtp-in", smtp_helo, NULL},
-        {"filter", "ehlo", "smtp-in", smtp_ehlo, NULL},
-        {"filter", "starttls", "smtp-in", smtp_starttls, NULL},
-        {"filter", "auth", "smtp-in", smtp_auth, NULL},
-        {"filter", "mail-from", "smtp-in", smtp_mail_from, NULL},
-        {"filter", "rcpt-to", "smtp-in", smtp_rcpt_to, NULL},
-        {"filter", "data", "smtp-in", smtp_data, NULL},
-        {"filter", "data-line", "smtp-in", smtp_data_line, NULL},
-        {"filter", "rset", "smtp-in", smtp_rset, NULL},
-        {"filter", "quit", "smtp-in", smtp_quit, NULL},
-        {"filter", "noop", "smtp-in", smtp_noop, NULL},
-        {"filter", "help", "smtp-in", smtp_help, NULL},
-        {"filter", "wiz", "smtp-in", smtp_wiz, NULL},
-        {"filter", "commit", "smtp-in", smtp_commit, NULL}
+        {"filter", "connect", "smtp-in", smtp_connect, NULL}
 };
 
 static int ready = 0;
@@ -216,90 +174,6 @@ smtp_connect(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
 		err(1, "Couldn't convert address");
 
 	smtp_handle_filter(cb, version, tm, reqid, token, (void *)(&sfconnect));
-}
-
-static void
-smtp_helo(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
-    uint64_t token, char *params)
-{
-}
-
-static void
-smtp_ehlo(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
-    uint64_t token, char *params)
-{
-}
-
-static void
-smtp_starttls(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
-    uint64_t token, char *params)
-{
-}
-
-static void
-smtp_auth(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
-    uint64_t token, char *params)
-{
-}
-
-static void
-smtp_mail_from(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
-    uint64_t token, char *params)
-{
-}
-
-static void
-smtp_rcpt_to(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
-    uint64_t token, char *params)
-{
-}
-
-static void 
-smtp_data(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
-    uint64_t token, char *params)
-{
-}
-
-static void 
-smtp_data_line(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
-    uint64_t token, char *params)
-{
-}
-
-static void 
-smtp_rset(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
-    uint64_t token, char *params)
-{
-}
-
-static void 
-smtp_quit(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
-    uint64_t token, char *params)
-{
-}
-
-static void 
-smtp_noop(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
-    uint64_t token, char *params)
-{
-}
-
-static void 
-smtp_help(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
-    uint64_t token, char *params)
-{
-}
-
-static void 
-smtp_wiz(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
-    uint64_t token, char *params)
-{
-}
-
-static void 
-smtp_commit(struct smtp_callback *cb, int version, time_t tm, uint64_t reqid,
-    uint64_t token, char *params)
-{
 }
 
 static void
