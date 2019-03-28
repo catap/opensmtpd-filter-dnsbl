@@ -121,9 +121,8 @@ smtp_newline(int fd, short event, void *arg)
 			if (start[0] == '\0' || end[0] != '\0')
 				errx(1, "Invalid line received: invalid "
 				    "timestamp");
-			for (i = 9 - (end - start); i > 0; i--) {
+			for (i = 9 - (end - start); i > 0; i--)
 				tm.tv_nsec *= 10;
-			}
 		}
 		if ((phase = strchr(direction, '|')) == NULL)
 			errx(1, "Invalid line receieved: missing phase");
