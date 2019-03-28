@@ -1,5 +1,4 @@
 #include <sys/time.h>
-#include <sys/tree.h>
 #include <sys/socket.h>
 
 #include <arpa/inet.h>
@@ -23,7 +22,6 @@ typedef int (*smtp_cb)(char *, int, struct timespec *, char *, char *, uint64_t,
 
 struct smtp_callback;
 struct smtp_request;
-RB_HEAD(smtp_requests, smtp_request) smtp_requests;
 
 static int smtp_register(char *, char *, char *, smtp_cb);
 static void smtp_newline(int, short, void *);
@@ -31,14 +29,6 @@ static void smtp_connect(struct smtp_callback *, int, struct timespec *,
     uint64_t, uint64_t, char *);
 static void smtp_handle_filter(struct smtp_callback *, int, struct timespec *,
     uint64_t, uint64_t, void *);
-static int smtp_request_cmp(struct smtp_request *, struct smtp_request *);
-RB_PROTOTYPE_STATIC(smtp_requests, smtp_request, entry, smtp_request_cmp);
-
-struct smtp_request {
-	uint64_t reqid;
-	uint64_t token;
-	RB_ENTRY(smtp_request) entry;
-};
 
 struct smtp_callback {
 	char *type;
@@ -289,11 +279,3 @@ smtp_register(char *type, char *phase, char *direction, smtp_cb cb)
 	errno = EINVAL;
 	return -1;
 }
-
-static int
-smtp_request_cmp(struct smtp_request *r1, struct smtp_request *r2)
-{
-	return r1->reqid - r2->reqid;
-}
-
-RB_GENERATE_STATIC(smtp_requests, smtp_request, entry, smtp_request_cmp);
