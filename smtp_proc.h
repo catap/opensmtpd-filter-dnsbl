@@ -16,7 +16,7 @@ enum filter_decision {
 	FILTER_REWRITE
 };
 
-int smtp_register_filter_connect(enum filter_decision (*cb)(char *, int, time_t,
+int smtp_register_filter_connect(void (*cb)(char *, int, time_t,
     char *, char *, uint64_t, uint64_t, struct smtp_filter_connect *));
 void smtp_filter_proceed(uint64_t, uint64_t);
 void smtp_filter_reject(uint64_t, uint64_t, int, const char *, ...)
