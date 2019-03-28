@@ -117,7 +117,7 @@ dnsbl_connect(char *type, int version, time_t tm, char *direction, char *phase,
 	return FILTER_PROCEED;
 }
 
-void
+__dead void
 usage(void)
 {
 	fprintf(stderr, "usage: %s [-b blacklist]\n",
