@@ -42,7 +42,6 @@ struct smtp_callback {
 };
 
 static int ready = 0;
-static int resolved = 1;
 
 int
 smtp_register_filter_connect(void (*cb)(char *, int, struct timespec *, char *,
@@ -57,6 +56,7 @@ smtp_run(void)
 	struct event stdinev;
 
 	printf("register|ready\n");
+	fflush(stdout);
 	ready = 1;
 
 	event_init();
@@ -66,7 +66,6 @@ smtp_run(void)
 
 	if (fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK) == -1)
 		err(1, "fcntl");
-
 	event_dispatch();
 }
 
@@ -182,39 +181,31 @@ smtp_handle_filter(struct smtp_callback *cb, int version, struct timespec *tm,
 {
 	enum filter_decision fdes;
 
-	if (!resolved)
-		errx(1, "Handling unexpected second request");
-	resolved = 0;
 	fdes = cb->cb(cb->type, version, tm, cb->direction, cb->phase, reqid,
 	    token, params);
-	if (!resolved) {
-		switch (fdes) {
-		case FILTER_PROCEED:
-			smtp_filter_proceed(reqid, token);
-			break;
-		case FILTER_REJECT:
-			smtp_filter_reject(reqid, token, 451,
-			    "Rejected by filter");
-			break;
-		case FILTER_DISCONNECT:
-			smtp_filter_disconnect(reqid, token,
-			    "Rejected by filter");
-			break;
-		case FILTER_REWRITE:
-			errx(1, "Not sure what is intended here yet");
-		}
+	switch (fdes) {
+	case FILTER_PROCEED:
+		smtp_filter_proceed(reqid, token);
+		break;
+	case FILTER_REJECT:
+		smtp_filter_reject(reqid, token, 451,
+		    "Rejected by filter");
+		break;
+	case FILTER_DISCONNECT:
+		smtp_filter_disconnect(reqid, token,
+		    "Rejected by filter");
+		break;
+	case FILTER_REWRITE:
+		errx(1, "Not sure what is intended here yet");
 	}
 }
 
 void
 smtp_filter_proceed(uint64_t reqid, uint64_t token)
 {
-	if (resolved)
-		errx(1, "reqid: %016"PRIx64" token: %016"PRIx64" already "
-		    "resolved", reqid, token);
 	printf("filter-result|%016"PRIx64"|%016"PRIx64"|proceed\n", token,
 	    reqid);
-	resolved = 1;
+	fflush(stdout);
 }
 
 void
@@ -223,9 +214,6 @@ smtp_filter_reject(uint64_t reqid, uint64_t token, int code,
 {
 	va_list ap;
 
-	if (resolved)
-		errx(1, "reqid: %016"PRIx64" token: %016"PRIx64" already "
-		    "resolved", reqid, token);
 	if (code < 200 || code > 599)
 		errx(1, "Invalid reject code");
 
@@ -235,7 +223,7 @@ smtp_filter_reject(uint64_t reqid, uint64_t token, int code,
 	vprintf(reason, ap);
 	va_end(ap);
 	putchar('\n');
-	resolved = 1;
+	fflush(stdout);
 }
 
 void
@@ -243,16 +231,13 @@ smtp_filter_disconnect(uint64_t reqid, uint64_t token, const char *reason, ...)
 {
 	va_list ap;
 
-	if (resolved)
-		errx(1, "reqid: %016"PRIx64" token: %016"PRIx64" already "
-		    "resolved", reqid, token);
 	printf("filter-result|%016"PRIx64"|%016"PRIx64"|disconnect|421 ",
 	    token, reqid);
 	va_start(ap, reason);
 	vprintf(reason, ap);
 	va_end(ap);
 	putchar('\n');
-	resolved = 1;
+	fflush(stdout);
 }
 
 static int
