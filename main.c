@@ -12,8 +12,6 @@
 
 static char **blacklists = NULL;
 static size_t nblacklists = 0;
-int retries = 0;
-int reject_onfailure = 0;
 
 void usage(void);
 enum filter_decision dnsbl_connect(char *, int, time_t, char *, char *,
@@ -44,13 +42,6 @@ main(int argc, char *argv[])
 			if ((blacklists[nblacklists] = strdup(optarg)) == NULL)
 				err(1, NULL);
 			nblacklists++;
-			break;
-		case 'f':
-			reject_onfailure = 1;
-		case 'r':
-			if ((retries = strtonum(optarg, 0, 10, &errstr)) == 0 &&
-			    errstr != NULL)
-				errx(1, "retries %s", errstr);
 			break;
 		default:
 			usage();
@@ -109,24 +100,18 @@ dnsbl_connect(char *type, int version, time_t tm, char *direction, char *phase,
 		} else
 			errx(1, "Invalid address family received");
 
-		for (try = -1; try < retries; try++) {
-			if ((hent = gethostbyname(query)) == NULL) {
-				if (h_errno == HOST_NOT_FOUND)
-					break;
-				if (h_errno != TRY_AGAIN) {
-					if (!reject_onfailure)
-						break;
-					else
-						smtp_filter_disconnect(reqid,
-						    token,
-						    "Blacklist check failed");
-						return FILTER_DISCONNECT;
-				}
-			} else {
+		if ((hent = gethostbyname(query)) == NULL) {
+			if (h_errno == HOST_NOT_FOUND)
+				break;
+			if (h_errno != TRY_AGAIN) {
 				smtp_filter_disconnect(reqid, token,
-				    "Listed at %s", blacklists[i]);
+				    "Blacklist check failed");
 				return FILTER_DISCONNECT;
 			}
+		} else {
+			smtp_filter_disconnect(reqid, token,
+			    "Listed at %s", blacklists[i]);
+			return FILTER_DISCONNECT;
 		}
 	}
 	return FILTER_PROCEED;
