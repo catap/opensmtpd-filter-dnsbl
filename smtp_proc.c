@@ -37,6 +37,7 @@ struct smtp_callback;
 struct smtp_request;
 
 static int smtp_register(char *, char *, char *, void *);
+static ssize_t smtp_getline(char ** restrict, size_t * restrict);
 static void smtp_newline(int, short, void *);
 static void smtp_connect(struct smtp_callback *, int, struct timespec *,
     uint64_t, uint64_t, char *);
@@ -106,6 +107,52 @@ smtp_run(int debug)
 	event_dispatch();
 }
 
+static ssize_t
+smtp_getline(char ** restrict buf, size_t * restrict size)
+{
+	static char *rbuf = NULL;
+	static size_t rsoff = 0, reoff = 0;
+	static size_t rbsize = 0;
+	char *sep;
+	size_t sepoff;
+	ssize_t strlen, nread;
+
+	do {
+		if (rsoff != reoff) {
+			if ((sep = memchr(rbuf + rsoff, '\n', reoff - rsoff))
+			    != NULL) {
+				sepoff = sep - rbuf;
+				if (*buf == NULL)
+					*size = 0;
+				if (*size < (sepoff - rsoff + 1)) {
+					*size = sepoff - rsoff + 1;
+					*buf = realloc(*buf, sepoff - rsoff + 1);
+					if (*buf == NULL)
+						fatal(NULL);
+				}
+				sep[0] = '\0';
+				strlen = strlcpy(*buf, rbuf + rsoff, *size);
+				if (strlen >= *size)
+					fatalx("copy buffer too small");
+				rsoff = sepoff + 1;
+				return strlen;
+			}
+		}
+		if (reoff - rsoff < 1500) {
+			if ((rbuf = realloc(rbuf, rbsize + 4096)) == NULL)
+				fatal(NULL);
+			rbsize += 4096;
+		}
+		// If we can't fill at the end, move everything back.
+		if (rbsize - reoff < 1500)
+			memmove(rbuf + rsoff, rbuf, reoff - rsoff);
+		nread = read(STDIN_FILENO, rbuf + reoff, rbsize - reoff);
+		if (nread <= 0)
+			return nread;
+		reoff += nread;
+	} while (1);
+}
+
 static void
 smtp_newline(int fd, short event, void *arg)
 {
@@ -119,12 +166,9 @@ smtp_newline(int fd, short event, void *arg)
 	uint64_t reqid, token;
 	int i;
 
-	while ((linelen = getline(&line, &linesize, stdin)) != -1) {
+	while ((linelen = smtp_getline(&line, &linesize)) > 0) {
 		if ((linedup = strdup(line)) == NULL)
 			fatalx(NULL);
-		if (line[linelen - 1] != '\n')
-			fatalx("Invalid line received: missing newline: %s", linedup);
-		line[linelen - 1] = '\0';
 		type = line;
 		if ((start = strchr(type, '|')) == NULL)
 			fatalx("Invalid line received: missing version: %s", linedup);
@@ -186,7 +230,7 @@ smtp_newline(int fd, short event, void *arg)
 			    version, &tm, reqid, params);
 		free(linedup);
 	}
-	if (feof(stdin) || (ferror(stdin) && errno != EAGAIN))
+	if (linelen == 0 || errno != EAGAIN)
 		event_del(stdinev);
 }
 
