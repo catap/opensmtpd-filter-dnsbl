@@ -157,8 +157,9 @@ static void
 smtp_newline(int fd, short event, void *arg)
 {
 	struct event *stdinev = (struct event *)arg;
-	char *line = NULL, *linedup;
+	char *line = NULL, *linedup = NULL;
 	size_t linesize = 0;
+	size_t dupsize = 0;
 	ssize_t linelen;
 	char *start, *end, *type, *direction, *phase, *params;
 	int version;
@@ -167,8 +168,12 @@ smtp_newline(int fd, short event, void *arg)
 	int i;
 
 	while ((linelen = smtp_getline(&line, &linesize)) > 0) {
-		if ((linedup = strdup(line)) == NULL)
-			fatalx(NULL);
+		if (dupsize < linesize) {
+			if ((linedup = realloc(linedup, linesize)) == NULL)
+				fatal(NULL);
+			dupsize = linesize;
+		}
+		strlcpy(linedup, line, dupsize);
 		type = line;
 		if ((start = strchr(type, '|')) == NULL)
 			fatalx("Invalid line received: missing version: %s", linedup);
@@ -228,7 +233,6 @@ smtp_newline(int fd, short event, void *arg)
 		} else
 			smtp_callbacks[i].smtp_report(&(smtp_callbacks[i]),
 			    version, &tm, reqid, params);
-		free(linedup);
 	}
 	if (linelen == 0 || errno != EAGAIN)
 		event_del(stdinev);
