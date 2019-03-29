@@ -120,46 +120,45 @@ smtp_newline(int fd, short event, void *arg)
 	int i;
 
 	while ((linelen = getline(&line, &linesize, stdin)) != -1) {
-		log_info("New line: %s", line);
 		if (line[linelen - 1] != '\n')
-			fatalx("Invalid line received: missing newline");
+			fatalx("Invalid line received: missing newline: %s", line);
 		line[linelen - 1] = '\0';
 		type = line;
 		if ((start = strchr(type, '|')) == NULL)
-			fatalx("Invalid line received: missing version");
+			fatalx("Invalid line received: missing version: %s", line);
 		start++[0] = '\0';
 		if ((end = strchr(start, '|')) == NULL)
-			fatalx("Invalid line received: missing time");
+			fatalx("Invalid line received: missing time: %s", line);
 		end++[0] = '\0';
 		if (strcmp(start, "1") != 0)
-			fatalx("Unsupported protocol received: %s", start);
+			fatalx("Unsupported protocol received: %s: %s", start, line);
 		version = 1;
 		start = end;
 		if ((direction = strchr(start, '|')) == NULL)
-			fatalx("Invalid line received: missing direction");
+			fatalx("Invalid line received: missing direction: %s", line);
 		direction++[0] = '\0';
 		tm.tv_sec = (time_t) strtoull(start, &end, 10);
 		tm.tv_nsec = 0;
 		if (start[0] == '\0' || (end[0] != '\0' && end[0] != '.'))
-			fatalx("Invalid line received: invalid timestamp");
+			fatalx("Invalid line received: invalid timestamp: %s", line);
 		if (end[0] == '.') {
 			start = end + 1;
 			tm.tv_nsec = strtol(start, &end, 10);
 			if (start[0] == '\0' || end[0] != '\0')
 				fatalx("Invalid line received: invalid "
-				    "timestamp");
+				    "timestamp: %s", line);
 			for (i = 9 - (end - start); i > 0; i--)
 				tm.tv_nsec *= 10;
 		}
 		if ((phase = strchr(direction, '|')) == NULL)
-			fatalx("Invalid line receieved: missing phase");
+			fatalx("Invalid line receieved: missing phase: %s", line);
 		phase++[0] = '\0';
 		if ((start = strchr(phase, '|')) == NULL)
-			fatalx("Invalid line received: missing reqid");
+			fatalx("Invalid line received: missing reqid: %s", line);
 		start++[0] = '\0';
 		reqid = strtoull(start, &params, 16);
 		if (start[0] == '|' || (params[0] != '|' & params[0] != '\0'))
-			fatalx("Invalid line received: invalid reqid");
+			fatalx("Invalid line received: invalid reqid: %s", line);
 		params++;
 
 		for (i = 0; i < NITEMS(smtp_callbacks); i++) {
@@ -170,13 +169,13 @@ smtp_newline(int fd, short event, void *arg)
 		}
 		if (i == NITEMS(smtp_callbacks)) {
 			fatalx("Invalid line received: received unregistered "
-			    "%s: %s", type, phase);
+			    "%s: %s: %s", type, phase, line);
 		}
 		if (strcmp(type, "filter") == 0) {
 			start = params;
 			token = strtoull(start, &params, 16);
 			if (start[0] == '|' || params[0] != '|')
-				fatalx("Invalid line received: invalid token");
+				fatalx("Invalid line received: invalid token: %s", line);
 			params++;
 			smtp_callbacks[i].smtp_filter(&(smtp_callbacks[i]),
 			    version, &tm, reqid, token, params);
@@ -201,7 +200,7 @@ smtp_connect(struct smtp_callback *cb, int version, struct timespec *tm,
 
 	hostname = params;
 	if ((address = strchr(params, '|')) == NULL)
-		fatalx("Invalid line received: missing address");
+		fatalx("Invalid line received: missing address: %s", params);
 	address++[0] = '\0';
 
 	addrx.af = AF_INET;
@@ -213,9 +212,9 @@ smtp_connect(struct smtp_callback *cb, int version, struct timespec *tm,
 	ret = inet_pton(addrx.af, address, addrx.af == AF_INET ?
 	    (void *)&(addrx.addr) : (void *)&(addrx.addr6));
 	if (ret == 0)
-		fatalx("Invalid line received: Couldn't parse address");
+		fatalx("Invalid line received: Couldn't parse address: %s", params);
 	if (ret == -1)
-		fatalx("Couldn't convert address");
+		fatal("Couldn't convert address: %s", params);
 
 	f = cb->cb;
 	f(cb->type, version, tm, cb->direction, cb->phase, reqid, token,
