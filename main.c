@@ -35,7 +35,7 @@ static size_t nblacklists = 0;
 
 void usage(void);
 void dnsbl_connect(char *, int, struct timespec *, char *, char *, uint64_t,
-    uint64_t, struct smtp_filter_connect *);
+    uint64_t, char *, struct inx_addr *);
 void dnsbl_resolve(struct asr_result *, void *);
 void dnsbl_timeout(int, short, void *);
 void dnsbl_session_free(struct dnsbl_session *);
@@ -82,8 +82,8 @@ main(int argc, char *argv[])
 
 void
 dnsbl_connect(char *type, int version, struct timespec *tm, char *direction,
-    char *phase, uint64_t reqid, uint64_t token,
-    struct smtp_filter_connect *params)
+    char *phase, uint64_t reqid, uint64_t token, char *hostname,
+    struct inx_addr *xaddr)
 {
 	struct dnsbl_session *session;
 	struct timeval timeout = {1, 0};
@@ -99,14 +99,17 @@ dnsbl_connect(char *type, int version, struct timespec *tm, char *direction,
 	session->reqid = reqid;
 	session->token = token;
 
-	addr = (u_char *)&(params->addr);
+	if (xaddr->af == AF_INET)
+		addr = (u_char *)&(xaddr->addr);
+	else
+		addr = (u_char *)&(xaddr->addr6);
 	for (i = 0; i < nblacklists; i++) {
-		if (params->af == AF_INET) {
+		if (xaddr->af == AF_INET) {
 			if (snprintf(query, sizeof(query), "%u.%u.%u.%u.%s",
 			    addr[3], addr[2], addr[1], addr[0],
 			    blacklists[i]) >= sizeof(query))
 				errx(1, "Can't create query, domain too long");
-		} else if (params->af == AF_INET6) {
+		} else if (xaddr->af == AF_INET6) {
 			if (snprintf(query, sizeof(query), "%hhx.%hhx.%hhx.%hhx"
 			    ".%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx"
 			    ".%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx"

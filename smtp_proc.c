@@ -17,18 +17,13 @@
 
 #define NITEMS(x) (sizeof(x) / sizeof(*x))
 
-typedef int (*smtp_cb)(char *, int, struct timespec *, char *, char *, uint64_t,
-    uint64_t, void *);
-
 struct smtp_callback;
 struct smtp_request;
 
-static int smtp_register(char *, char *, char *, smtp_cb);
+static int smtp_register(char *, char *, char *, void *);
 static void smtp_newline(int, short, void *);
 static void smtp_connect(struct smtp_callback *, int, struct timespec *,
     uint64_t, uint64_t, char *);
-static void smtp_handle_filter(struct smtp_callback *, int, struct timespec *,
-    uint64_t, uint64_t, void *);
 
 struct smtp_callback {
 	char *type;
@@ -36,7 +31,7 @@ struct smtp_callback {
 	char *direction;
 	void (*smtp_parse)(struct smtp_callback *, int, struct timespec *,
 	    uint64_t, uint64_t, char *);
-	smtp_cb cb;
+	void *cb;
 } smtp_callbacks[] = {
         {"filter", "connect", "smtp-in", smtp_connect, NULL}
 };
@@ -45,9 +40,9 @@ static int ready = 0;
 
 int
 smtp_register_filter_connect(void (*cb)(char *, int, struct timespec *, char *,
-    char *, uint64_t, uint64_t, struct smtp_filter_connect *))
+    char *, uint64_t, uint64_t, char *, struct inx_addr *))
 {
-	return smtp_register("filter", "connect", "smtp-in", (smtp_cb) cb);
+	return smtp_register("filter", "connect", "smtp-in", (void *)cb);
 }
 
 void
@@ -150,54 +145,34 @@ static void
 smtp_connect(struct smtp_callback *cb, int version, struct timespec *tm,
     uint64_t reqid, uint64_t token, char *params)
 {
-	struct smtp_filter_connect sfconnect;
+	struct inx_addr addrx;
+	char *hostname;
 	char *address;
 	int ret;
+	void (*f)(char *, int, struct timespec *,char *, char *, uint64_t,
+	    uint64_t, char *, struct inx_addr *);
 
-	sfconnect.hostname = params;
+	hostname = params;
 	if ((address = strchr(params, '|')) == NULL)
 		errx(1, "Invalid line received: missing address");
 	address++[0] = '\0';
 
-	sfconnect.af = AF_INET;
+	addrx.af = AF_INET;
 	if (strncasecmp(address, "ipv6:", 5) == 0) {
-		sfconnect.af = AF_INET6;
+		addrx.af = AF_INET6;
 		address += 5;
 	}
 
-	ret = inet_pton(sfconnect.af, address, sfconnect.af == AF_INET ?
-	    (void *)&(sfconnect.addr) : (void *)&(sfconnect.addr6));
+	ret = inet_pton(addrx.af, address, addrx.af == AF_INET ?
+	    (void *)&(addrx.addr) : (void *)&(addrx.addr6));
 	if (ret == 0)
 		errx(1, "Invalid line received: Couldn't parse address");
 	if (ret == -1)
 		err(1, "Couldn't convert address");
 
-	smtp_handle_filter(cb, version, tm, reqid, token, (void *)(&sfconnect));
-}
-
-static void
-smtp_handle_filter(struct smtp_callback *cb, int version, struct timespec *tm,
-    uint64_t reqid, uint64_t token, void *params)
-{
-	enum filter_decision fdes;
-
-	fdes = cb->cb(cb->type, version, tm, cb->direction, cb->phase, reqid,
-	    token, params);
-	switch (fdes) {
-	case FILTER_PROCEED:
-		smtp_filter_proceed(reqid, token);
-		break;
-	case FILTER_REJECT:
-		smtp_filter_reject(reqid, token, 451,
-		    "Rejected by filter");
-		break;
-	case FILTER_DISCONNECT:
-		smtp_filter_disconnect(reqid, token,
-		    "Rejected by filter");
-		break;
-	case FILTER_REWRITE:
-		errx(1, "Not sure what is intended here yet");
-	}
+	f = cb->cb;
+	f(cb->type, version, tm, cb->direction, cb->phase, reqid, token,
+	    hostname, &addrx);
 }
 
 void
@@ -241,7 +216,7 @@ smtp_filter_disconnect(uint64_t reqid, uint64_t token, const char *reason, ...)
 }
 
 static int
-smtp_register(char *type, char *phase, char *direction, smtp_cb cb)
+smtp_register(char *type, char *phase, char *direction, void *cb)
 {
 	int i;
 
