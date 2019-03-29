@@ -120,6 +120,7 @@ smtp_newline(int fd, short event, void *arg)
 	int i;
 
 	while ((linelen = getline(&line, &linesize, stdin)) != -1) {
+		log_info("New line: %s", line);
 		if (line[linelen - 1] != '\n')
 			fatalx("Invalid line received: missing newline");
 		line[linelen - 1] = '\0';
