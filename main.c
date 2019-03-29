@@ -28,6 +28,7 @@ struct dnsbl_query {
 struct dnsbl_session {
 	uint64_t reqid;
 	uint64_t token;
+	int listed;
 	struct dnsbl_query *query;
 	RB_ENTRY(dnsbl_session) entry;
 };
@@ -37,13 +38,17 @@ RB_PROTOTYPE(dnsbl_sessions, dnsbl_session, entry, dnsbl_session_cmp);
 
 static char **blacklists = NULL;
 static size_t nblacklists = 0;
+static int markspam = 0;
 
 void usage(void);
 void dnsbl_connect(char *, int, struct timespec *, char *, char *, uint64_t,
     uint64_t, char *, struct inx_addr *);
+void dnsbl_dataline(char *, int, struct timespec *, char *, char *, uint64_t,
+    uint64_t, char *);
 void dnsbl_disconnect(char *, int, struct timespec *, char *, char *, uint64_t);
 void dnsbl_resolve(struct asr_result *, void *);
 void dnsbl_timeout(int, short, void *);
+void dnsbl_session_query_done(struct dnsbl_session *);
 void dnsbl_session_free(struct dnsbl_session *);
 int dnsbl_session_cmp(struct dnsbl_session *, struct dnsbl_session *);
 
@@ -62,7 +67,7 @@ main(int argc, char *argv[])
 	if (pledge("stdio dns", NULL) == -1)
 		err(1, "pledge");
 
-	while ((ch = getopt(argc, argv, "b:f:r:")) != -1) {
+	while ((ch = getopt(argc, argv, "b:m")) != -1) {
 		switch (ch) {
 		case 'b':
 			blacklists = reallocarray(blacklists, nblacklists + 1,
@@ -73,6 +78,9 @@ main(int argc, char *argv[])
 				err(1, NULL);
 			nblacklists++;
 			break;
+		case 'm':
+			markspam = 1;
+			break;
 		default:
 			usage();
 		}
@@ -82,6 +90,7 @@ main(int argc, char *argv[])
 		errx(1, "No blacklist specified");
 
 	smtp_register_filter_connect(dnsbl_connect);
+	smtp_register_filter_dataline(dnsbl_dataline);
 	smtp_in_register_report_disconnect(dnsbl_disconnect);
 	smtp_run();
 
@@ -106,6 +115,7 @@ dnsbl_connect(char *type, int version, struct timespec *tm, char *direction,
 		err(1, NULL);
 	session->reqid = reqid;
 	session->token = token;
+	session->listed = -1;
 	RB_INSERT(dnsbl_sessions, &dnsbl_sessions, session);
 
 	if (xaddr->af == AF_INET)
@@ -167,9 +177,15 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 	query->query = NULL;
 	evtimer_del(&(query->timeout));
 	if (result->ar_hostent != NULL) {
-		smtp_filter_disconnect(session->reqid, session->token,
-		    "Host listed at %s", blacklists[query->blacklist]);
-		dnsbl_session_free(session);
+		if (!markspam) {
+			smtp_filter_disconnect(session->reqid, session->token,
+			    "Host listed at %s", blacklists[query->blacklist]);
+			dnsbl_session_free(session);
+		} else {
+			dnsbl_session_query_done(session);
+			session->listed = query->blacklist;
+			smtp_filter_proceed(session->reqid, session->token);
+		}
 		return;
 	}
 	if (result->ar_h_errno != HOST_NOT_FOUND) {
@@ -210,17 +226,41 @@ dnsbl_disconnect(char *type, int version, struct timespec *tm, char *direction,
 }
 
 void
-dnsbl_session_free(struct dnsbl_session *session)
+dnsbl_dataline(char *type, int version, struct timespec *tm, char *direction,
+    char *phase, uint64_t reqid, uint64_t token, char *line)
+{
+	struct dnsbl_session *session, search;
+
+	search.reqid = reqid;
+	session = RB_FIND(dnsbl_sessions, &dnsbl_sessions, &search);
+
+	if (session->listed != -1) {
+		smtp_filter_dataline(reqid, token, "X-Spam: yes");
+		smtp_filter_dataline(reqid, token, "X-Spam-DNSBL: Listed at %s",
+		    blacklists[session->listed]);
+		session->listed = -1;
+	}
+	smtp_filter_dataline(reqid, token, "%s", line);
+}
+
+void
+dnsbl_session_query_done(struct dnsbl_session *session)
 {
 	int i;
 
-	RB_REMOVE(dnsbl_sessions, &dnsbl_sessions, session);
 	for (i = 0; i < nblacklists; i++) {
 		if (!session->query[i].resolved) {
 			event_asr_abort(session->query[i].event);
 			evtimer_del(&(session->query[i].timeout));
 		}
 	}
+}
+
+void
+dnsbl_session_free(struct dnsbl_session *session)
+{
+	RB_REMOVE(dnsbl_sessions, &dnsbl_sessions, session);
+	dnsbl_session_query_done(session);
 	free(session->query);
 	free(session);
 }
