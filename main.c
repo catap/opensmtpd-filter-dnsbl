@@ -1,3 +1,4 @@
+#include <sys/tree.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 
@@ -28,7 +29,11 @@ struct dnsbl_session {
 	uint64_t reqid;
 	uint64_t token;
 	struct dnsbl_query *query;
+	RB_ENTRY(dnsbl_session) entry;
 };
+
+RB_HEAD(dnsbl_sessions, dnsbl_session) dnsbl_sessions = RB_INITIALIZER(NULL);
+RB_PROTOTYPE(dnsbl_sessions, dnsbl_session, entry, dnsbl_session_cmp);
 
 static char **blacklists = NULL;
 static size_t nblacklists = 0;
@@ -36,9 +41,11 @@ static size_t nblacklists = 0;
 void usage(void);
 void dnsbl_connect(char *, int, struct timespec *, char *, char *, uint64_t,
     uint64_t, char *, struct inx_addr *);
+void dnsbl_disconnect(char *, int, struct timespec *, char *, char *, uint64_t);
 void dnsbl_resolve(struct asr_result *, void *);
 void dnsbl_timeout(int, short, void *);
 void dnsbl_session_free(struct dnsbl_session *);
+int dnsbl_session_cmp(struct dnsbl_session *, struct dnsbl_session *);
 
 int
 main(int argc, char *argv[])
@@ -75,6 +82,7 @@ main(int argc, char *argv[])
 		errx(1, "No blacklist specified");
 
 	smtp_register_filter_connect(dnsbl_connect);
+	smtp_in_register_report_disconnect(dnsbl_disconnect);
 	smtp_run();
 
 	return 0;
@@ -98,6 +106,7 @@ dnsbl_connect(char *type, int version, struct timespec *tm, char *direction,
 		err(1, NULL);
 	session->reqid = reqid;
 	session->token = token;
+	RB_INSERT(dnsbl_sessions, &dnsbl_sessions, session);
 
 	if (xaddr->af == AF_INET)
 		addr = (u_char *)&(xaddr->addr);
@@ -190,10 +199,22 @@ dnsbl_timeout(int fd, short event, void *arg)
 }
 
 void
+dnsbl_disconnect(char *type, int version, struct timespec *tm, char *direction,
+    char *phase, uint64_t reqid)
+{
+	struct dnsbl_session *session, search;
+
+	search.reqid = reqid;
+	if ((session = RB_FIND(dnsbl_sessions, &dnsbl_sessions, &search)) != NULL)
+		dnsbl_session_free(session);
+}
+
+void
 dnsbl_session_free(struct dnsbl_session *session)
 {
 	int i;
 
+	RB_REMOVE(dnsbl_sessions, &dnsbl_sessions, session);
 	for (i = 0; i < nblacklists; i++) {
 		if (!session->query[i].resolved) {
 			event_asr_abort(session->query[i].event);
@@ -204,6 +225,12 @@ dnsbl_session_free(struct dnsbl_session *session)
 	free(session);
 }
 
+int
+dnsbl_session_cmp(struct dnsbl_session *s1, struct dnsbl_session *s2)
+{
+	return (s1->reqid < s2->reqid ? -1 : s1->reqid > s2->reqid);
+}
+
 __dead void
 usage(void)
 {
@@ -211,3 +238,5 @@ usage(void)
 	    getprogname());
 	exit(1);
 }
+
+RB_GENERATE(dnsbl_sessions, dnsbl_session, entry, dnsbl_session_cmp);
