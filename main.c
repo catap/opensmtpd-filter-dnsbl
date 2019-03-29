@@ -56,28 +56,13 @@ int
 main(int argc, char *argv[])
 {
 	int ch;
-	size_t i;
-	char *line = NULL;
-	size_t linesize = 0;
-	ssize_t linelen;
-	char *msgid, *token, *ip;
-	const char *errstr;
-	int lookup;
+	int i;
 
 	if (pledge("stdio dns", NULL) == -1)
 		err(1, "pledge");
 
-	while ((ch = getopt(argc, argv, "b:m")) != -1) {
+	while ((ch = getopt(argc, argv, "m")) != -1) {
 		switch (ch) {
-		case 'b':
-			blacklists = reallocarray(blacklists, nblacklists + 1,
-			    sizeof(*blacklists));
-			if (blacklists == NULL)
-				err(1, NULL);
-			if ((blacklists[nblacklists] = strdup(optarg)) == NULL)
-				err(1, NULL);
-			nblacklists++;
-			break;
 		case 'm':
 			markspam = 1;
 			break;
@@ -86,11 +71,19 @@ main(int argc, char *argv[])
 		}
 	}
 
+	nblacklists = argc - optind;
+
+	if ((blacklists = calloc(nblacklists, sizeof(*blacklists))) == NULL)
+		err(1, NULL);
+	for (i = 0; i < nblacklists; i++)
+		blacklists[i] = argv[optind + i];
+
 	if (nblacklists == 0)
 		errx(1, "No blacklist specified");
 
 	smtp_register_filter_connect(dnsbl_connect);
-	smtp_register_filter_dataline(dnsbl_dataline);
+	if (markspam)
+		smtp_register_filter_dataline(dnsbl_dataline);
 	smtp_in_register_report_disconnect(dnsbl_disconnect);
 	smtp_run();
 
@@ -200,7 +193,8 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 			return;
 	}
 	smtp_filter_proceed(session->reqid, session->token);
-	dnsbl_session_free(session);
+	if (!markspam)
+		dnsbl_session_free(session);
 }
 
 void
@@ -274,7 +268,7 @@ dnsbl_session_cmp(struct dnsbl_session *s1, struct dnsbl_session *s2)
 __dead void
 usage(void)
 {
-	fprintf(stderr, "usage: %s [-b blacklist]\n",
+	fprintf(stderr, "usage: %s [-m] blacklist [...]\n",
 	    getprogname());
 	exit(1);
 }
