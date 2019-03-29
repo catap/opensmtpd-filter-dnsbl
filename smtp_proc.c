@@ -193,6 +193,7 @@ smtp_connect(struct smtp_callback *cb, int version, struct timespec *tm,
 	f(cb->type, version, tm, cb->direction, cb->phase, reqid, token,
 	    hostname, &addrx);
 }
+
 static void
 smtp_in_link_disconnect(struct smtp_callback *cb, int version,
     struct timespec *tm, uint64_t reqid, char *params)
