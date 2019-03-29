@@ -187,7 +187,7 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 	if (result->ar_hostent != NULL) {
 		if (!markspam) {
 			smtp_filter_disconnect(session->reqid, session->token,
-			    "Host listed at %s", blacklists[query->blacklist]);
+			    "Listed at %s", blacklists[query->blacklist]);
 			dnsbl_session_free(session);
 		} else {
 			dnsbl_session_query_done(session);
