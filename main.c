@@ -17,16 +17,17 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
-#include <err.h>
 #include <errno.h>
 #include <event.h>
 #include <netdb.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <syslog.h>
 #include <unistd.h>
 #include <asr.h>
 
+#include "log.h"
 #include "smtp_proc.h"
 
 struct dnsbl_session;
@@ -72,12 +73,13 @@ main(int argc, char *argv[])
 {
 	int ch;
 	int i;
+	int debug = 0;
 
-	if (pledge("stdio dns", NULL) == -1)
-		err(1, "pledge");
-
-	while ((ch = getopt(argc, argv, "m")) != -1) {
+	while ((ch = getopt(argc, argv, "d:m")) != -1) {
 		switch (ch) {
+		case 'd':
+			debug = 1;
+			break;
 		case 'm':
 			markspam = 1;
 			break;
@@ -86,11 +88,15 @@ main(int argc, char *argv[])
 		}
 	}
 
+	log_init(debug, LOG_MAIL);
+	if (pledge("stdio dns", NULL) == -1)
+		fatal("pledge");
+
 	if ((nblacklists = argc - optind) == 0)
-		errx(1, "No blacklist specified");
+		fatalx("No blacklist specified");
 
 	if ((blacklists = calloc(nblacklists, sizeof(*blacklists))) == NULL)
-		err(1, NULL);
+		fatal(NULL);
 	for (i = 0; i < nblacklists; i++)
 		blacklists[i] = argv[optind + i];
 
@@ -98,7 +104,7 @@ main(int argc, char *argv[])
 	if (markspam)
 		smtp_register_filter_dataline(dnsbl_dataline);
 	smtp_in_register_report_disconnect(dnsbl_disconnect);
-	smtp_run();
+	smtp_run(debug);
 
 	return 0;
 }
@@ -115,10 +121,10 @@ dnsbl_connect(char *type, int version, struct timespec *tm, char *direction,
 	int i, try;
 
 	if ((session = calloc(1, sizeof(*session))) == NULL)
-		err(1, NULL);
+		fatal(NULL);
 	if ((session->query = calloc(nblacklists, sizeof(*(session->query))))
 	    == NULL)
-		err(1, NULL);
+		fatal(NULL);
 	session->reqid = reqid;
 	session->token = token;
 	session->listed = -1;
@@ -133,7 +139,7 @@ dnsbl_connect(char *type, int version, struct timespec *tm, char *direction,
 			if (snprintf(query, sizeof(query), "%u.%u.%u.%u.%s",
 			    addr[3], addr[2], addr[1], addr[0],
 			    blacklists[i]) >= sizeof(query))
-				errx(1, "Can't create query, domain too long");
+				fatalx("Can't create query, domain too long");
 		} else if (xaddr->af == AF_INET6) {
 			if (snprintf(query, sizeof(query), "%hhx.%hhx.%hhx.%hhx"
 			    ".%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx"
@@ -156,9 +162,9 @@ dnsbl_connect(char *type, int version, struct timespec *tm, char *direction,
 			    (u_char) (addr[1] & 0xf), (u_char) (addr[1] >> 4),
 			    (u_char) (addr[0] & 0xf), (u_char) (addr[0] >> 4),
 			    blacklists[i]) >= sizeof(query))
-				errx(1, "Can't create query, domain too long");
+				fatalx( "Can't create query, domain too long");
 		} else
-			errx(1, "Invalid address family received");
+			fatalx("Invalid address family received");
 
 		session->query[i].query = gethostbyname_async(query, NULL);
 		session->query[i].event = event_asr_run(session->query[i].query,

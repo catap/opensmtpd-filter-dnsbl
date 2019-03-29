@@ -17,7 +17,6 @@
 #include <sys/socket.h>
 
 #include <arpa/inet.h>
-#include <err.h>
 #include <errno.h>
 #include <event.h>
 #include <fcntl.h>
@@ -26,8 +25,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <syslog.h>
 #include <unistd.h>
 
+#include "log.h"
 #include "smtp_proc.h"
 
 #define NITEMS(x) (sizeof(x) / sizeof(*x))
@@ -86,7 +87,7 @@ smtp_in_register_report_disconnect(void (*cb)(char *, int, struct timespec *,
 }
 
 void
-smtp_run(void)
+smtp_run(int debug)
 {
 	struct event stdinev;
 
@@ -94,13 +95,14 @@ smtp_run(void)
 	fflush(stdout);
 	ready = 1;
 
+	log_init(debug, LOG_MAIL);
 	event_init();
 	event_set(&stdinev, STDIN_FILENO, EV_READ | EV_PERSIST, smtp_newline,
 	    &stdinev);
 	event_add(&stdinev, NULL);
 
 	if (fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK) == -1)
-		err(1, "fcntl");
+		fatal("fcntl");
 	event_dispatch();
 }
 
@@ -119,44 +121,44 @@ smtp_newline(int fd, short event, void *arg)
 
 	while ((linelen = getline(&line, &linesize, stdin)) != -1) {
 		if (line[linelen - 1] != '\n')
-			errx(1, "Invalid line received: missing newline");
+			fatalx("Invalid line received: missing newline");
 		line[linelen - 1] = '\0';
 		type = line;
 		if ((start = strchr(type, '|')) == NULL)
-			errx(1, "Invalid line received: missing version");
+			fatalx("Invalid line received: missing version");
 		start++[0] = '\0';
 		if ((end = strchr(start, '|')) == NULL)
-			errx(1, "Invalid line received: missing time");
+			fatalx("Invalid line received: missing time");
 		end++[0] = '\0';
 		if (strcmp(start, "1") != 0)
-			errx(1, "Unsupported protocol received: %s", start);
+			fatalx("Unsupported protocol received: %s", start);
 		version = 1;
 		start = end;
 		if ((direction = strchr(start, '|')) == NULL)
-			errx(1, "Invalid line received: missing direction");
+			fatalx("Invalid line received: missing direction");
 		direction++[0] = '\0';
 		tm.tv_sec = (time_t) strtoull(start, &end, 10);
 		tm.tv_nsec = 0;
 		if (start[0] == '\0' || (end[0] != '\0' && end[0] != '.'))
-			errx(1, "Invalid line received: invalid timestamp");
+			fatalx("Invalid line received: invalid timestamp");
 		if (end[0] == '.') {
 			start = end + 1;
 			tm.tv_nsec = strtol(start, &end, 10);
 			if (start[0] == '\0' || end[0] != '\0')
-				errx(1, "Invalid line received: invalid "
+				fatalx("Invalid line received: invalid "
 				    "timestamp");
 			for (i = 9 - (end - start); i > 0; i--)
 				tm.tv_nsec *= 10;
 		}
 		if ((phase = strchr(direction, '|')) == NULL)
-			errx(1, "Invalid line receieved: missing phase");
+			fatalx("Invalid line receieved: missing phase");
 		phase++[0] = '\0';
 		if ((start = strchr(phase, '|')) == NULL)
-			errx(1, "Invalid line received: missing reqid");
+			fatalx("Invalid line received: missing reqid");
 		start++[0] = '\0';
 		reqid = strtoull(start, &params, 16);
 		if (start[0] == '|' || (params[0] != '|' & params[0] != '\0'))
-			errx(1, "Invalid line received: invalid reqid");
+			fatalx("Invalid line received: invalid reqid");
 		params++;
 
 		for (i = 0; i < NITEMS(smtp_callbacks); i++) {
@@ -166,14 +168,14 @@ smtp_newline(int fd, short event, void *arg)
 				break;
 		}
 		if (i == NITEMS(smtp_callbacks)) {
-			errx(1, "Invalid line received: received unregistered "
+			fatalx("Invalid line received: received unregistered "
 			    "%s: %s", type, phase);
 		}
 		if (strcmp(type, "filter") == 0) {
 			start = params;
 			token = strtoull(start, &params, 16);
 			if (start[0] == '|' || params[0] != '|')
-				errx(1, "Invalid line received: invalid token");
+				fatalx("Invalid line received: invalid token");
 			params++;
 			smtp_callbacks[i].smtp_filter(&(smtp_callbacks[i]),
 			    version, &tm, reqid, token, params);
@@ -198,7 +200,7 @@ smtp_connect(struct smtp_callback *cb, int version, struct timespec *tm,
 
 	hostname = params;
 	if ((address = strchr(params, '|')) == NULL)
-		errx(1, "Invalid line received: missing address");
+		fatalx("Invalid line received: missing address");
 	address++[0] = '\0';
 
 	addrx.af = AF_INET;
@@ -210,9 +212,9 @@ smtp_connect(struct smtp_callback *cb, int version, struct timespec *tm,
 	ret = inet_pton(addrx.af, address, addrx.af == AF_INET ?
 	    (void *)&(addrx.addr) : (void *)&(addrx.addr6));
 	if (ret == 0)
-		errx(1, "Invalid line received: Couldn't parse address");
+		fatalx("Invalid line received: Couldn't parse address");
 	if (ret == -1)
-		err(1, "Couldn't convert address");
+		fatalx("Couldn't convert address");
 
 	f = cb->cb;
 	f(cb->type, version, tm, cb->direction, cb->phase, reqid, token,
@@ -256,7 +258,7 @@ smtp_filter_reject(uint64_t reqid, uint64_t token, int code,
 	va_list ap;
 
 	if (code < 200 || code > 599)
-		errx(1, "Invalid reject code");
+		fatalx("Invalid reject code");
 
 	printf("filter-result|%016"PRIx64"|%016"PRIx64"|reject|%d ", token,
 	    reqid, code);
@@ -300,7 +302,7 @@ smtp_register(char *type, char *phase, char *direction, void *cb)
 	int i;
 
 	if (ready)
-		errx(1, "Can't register when proc is running");
+		fatalx("Can't register when proc is running");
 
 	for (i = 0; i < NITEMS(smtp_callbacks); i++) {
 		if (strcmp(type, smtp_callbacks[i].type) == 0 &&

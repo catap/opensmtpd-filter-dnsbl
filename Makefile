@@ -2,7 +2,7 @@
 
 PROG=	dnsbl
 BINDIR=	/usr/bin
-SRCS+=	main.c smtp_proc.c
+SRCS+=	main.c log.c smtp_proc.c
 
 CFLAGS+= -g3 -O0
 LDADD+=	-levent
