@@ -17,6 +17,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
+#include <arpa/inet.h>
 #include <errno.h>
 #include <event.h>
 #include <netdb.h>
@@ -44,6 +45,7 @@ struct dnsbl_query {
 struct dnsbl_session {
 	uint64_t reqid;
 	uint64_t token;
+	char addr[INET6_ADDRSTRLEN];
 	int listed;
 	struct dnsbl_query *query;
 	RB_ENTRY(dnsbl_session) entry;
@@ -128,6 +130,11 @@ dnsbl_connect(char *type, int version, struct timespec *tm, char *direction,
 	session->reqid = reqid;
 	session->token = token;
 	session->listed = -1;
+	if (inet_ntop(xaddr->af, xaddr->af == AF_INET ?
+	    (void *)&(xaddr->addr) : (void *)&(xaddr->addr6), session->addr,
+	    sizeof(session->addr)) == NULL)
+		fatal("inet_ntop");
+
 	RB_INSERT(dnsbl_sessions, &dnsbl_sessions, session);
 
 	if (xaddr->af == AF_INET)
@@ -192,11 +199,15 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 		if (!markspam) {
 			smtp_filter_disconnect(session->reqid, session->token,
 			    "Listed at %s", blacklists[query->blacklist]);
+			log_info("Rejected %s: listed at %s", session->addr,
+			    blacklists[query->blacklist]);
 			dnsbl_session_free(session);
 		} else {
 			dnsbl_session_query_done(session);
 			session->listed = query->blacklist;
 			smtp_filter_proceed(session->reqid, session->token);
+			log_info("Marked as spam %s: listed at %s", session->addr,
+			    blacklists[query->blacklist]);
 		}
 		return;
 	}
@@ -212,6 +223,7 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 			return;
 	}
 	smtp_filter_proceed(session->reqid, session->token);
+	log_info("%s not listed", session->addr);
 	if (!markspam)
 		dnsbl_session_free(session);
 }
