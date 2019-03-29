@@ -24,6 +24,8 @@ static int smtp_register(char *, char *, char *, void *);
 static void smtp_newline(int, short, void *);
 static void smtp_connect(struct smtp_callback *, int, struct timespec *,
     uint64_t, uint64_t, char *);
+static void smtp_dataline(struct smtp_callback *, int, struct timespec *,
+    uint64_t, uint64_t, char *);
 static void smtp_in_link_disconnect(struct smtp_callback *, int, struct timespec *,
     uint64_t, char *);
 
@@ -40,6 +42,7 @@ struct smtp_callback {
 	void *cb;
 } smtp_callbacks[] = {
         {"filter", "connect", "smtp-in", .smtp_filter = smtp_connect, NULL},
+        {"filter", "data-line", "smtp-in", .smtp_filter = smtp_dataline, NULL},
 	{"report", "link-disconnect", "smtp-in",
 	    .smtp_report = smtp_in_link_disconnect, NULL}
 };
@@ -51,6 +54,13 @@ smtp_register_filter_connect(void (*cb)(char *, int, struct timespec *, char *,
     char *, uint64_t, uint64_t, char *, struct inx_addr *))
 {
 	return smtp_register("filter", "connect", "smtp-in", (void *)cb);
+}
+
+int
+smtp_register_filter_dataline(void (*cb)(char *, int, struct timespec *, char *,
+    char *, uint64_t, uint64_t, char *))
+{
+	return smtp_register("filter", "data-line", "smtp-in", (void *)cb);
 }
 
 int
@@ -195,6 +205,18 @@ smtp_connect(struct smtp_callback *cb, int version, struct timespec *tm,
 }
 
 static void
+smtp_dataline(struct smtp_callback *cb, int version, struct timespec *tm,
+    uint64_t reqid, uint64_t token, char *line)
+{
+	void (*f)(char *, int, struct timespec *,char *, char *, uint64_t,
+	    uint64_t, char *);
+
+	f = cb->cb;
+	f(cb->type, version, tm, cb->direction, cb->phase, reqid, token,
+	    line);
+}
+
+static void
 smtp_in_link_disconnect(struct smtp_callback *cb, int version,
     struct timespec *tm, uint64_t reqid, char *params)
 {
@@ -239,6 +261,19 @@ smtp_filter_disconnect(uint64_t reqid, uint64_t token, const char *reason, ...)
 	    token, reqid);
 	va_start(ap, reason);
 	vprintf(reason, ap);
+	va_end(ap);
+	putchar('\n');
+	fflush(stdout);
+}
+
+void
+smtp_filter_dataline(uint64_t reqid, uint64_t token, const char *line, ...)
+{
+	va_list ap;
+
+	printf("filter-dataline|%016"PRIx64"|%016"PRIx64"|", token, reqid);
+	va_start(ap, line);
+	vprintf(line, ap);
 	va_end(ap);
 	putchar('\n');
 	fflush(stdout);
