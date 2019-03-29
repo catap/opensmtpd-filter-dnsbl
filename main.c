@@ -86,15 +86,13 @@ main(int argc, char *argv[])
 		}
 	}
 
-	nblacklists = argc - optind;
+	if ((nblacklists = argc - optind) == 0)
+		errx(1, "No blacklist specified");
 
 	if ((blacklists = calloc(nblacklists, sizeof(*blacklists))) == NULL)
 		err(1, NULL);
 	for (i = 0; i < nblacklists; i++)
 		blacklists[i] = argv[optind + i];
-
-	if (nblacklists == 0)
-		errx(1, "No blacklist specified");
 
 	smtp_register_filter_connect(dnsbl_connect);
 	if (markspam)
