@@ -110,7 +110,7 @@ static void
 smtp_newline(int fd, short event, void *arg)
 {
 	struct event *stdinev = (struct event *)arg;
-	char *line = NULL;
+	char *line = NULL, *linedup;
 	size_t linesize = 0;
 	ssize_t linelen;
 	char *start, *end, *type, *direction, *phase, *params;
@@ -120,45 +120,47 @@ smtp_newline(int fd, short event, void *arg)
 	int i;
 
 	while ((linelen = getline(&line, &linesize, stdin)) != -1) {
+		if ((linedup = strdup(line)) == NULL)
+			fatalx(NULL);
 		if (line[linelen - 1] != '\n')
-			fatalx("Invalid line received: missing newline: %s", line);
+			fatalx("Invalid line received: missing newline: %s", linedup);
 		line[linelen - 1] = '\0';
 		type = line;
 		if ((start = strchr(type, '|')) == NULL)
-			fatalx("Invalid line received: missing version: %s", line);
+			fatalx("Invalid line received: missing version: %s", linedup);
 		start++[0] = '\0';
 		if ((end = strchr(start, '|')) == NULL)
-			fatalx("Invalid line received: missing time: %s", line);
+			fatalx("Invalid line received: missing time: %s", linedup);
 		end++[0] = '\0';
 		if (strcmp(start, "1") != 0)
-			fatalx("Unsupported protocol received: %s: %s", start, line);
+			fatalx("Unsupported protocol received: %s: %s", start, linedup);
 		version = 1;
 		start = end;
 		if ((direction = strchr(start, '|')) == NULL)
-			fatalx("Invalid line received: missing direction: %s", line);
+			fatalx("Invalid line received: missing direction: %s", linedup);
 		direction++[0] = '\0';
 		tm.tv_sec = (time_t) strtoull(start, &end, 10);
 		tm.tv_nsec = 0;
 		if (start[0] == '\0' || (end[0] != '\0' && end[0] != '.'))
-			fatalx("Invalid line received: invalid timestamp: %s", line);
+			fatalx("Invalid line received: invalid timestamp: %s", linedup);
 		if (end[0] == '.') {
 			start = end + 1;
 			tm.tv_nsec = strtol(start, &end, 10);
 			if (start[0] == '\0' || end[0] != '\0')
 				fatalx("Invalid line received: invalid "
-				    "timestamp: %s", line);
+				    "timestamp: %s", linedup);
 			for (i = 9 - (end - start); i > 0; i--)
 				tm.tv_nsec *= 10;
 		}
 		if ((phase = strchr(direction, '|')) == NULL)
-			fatalx("Invalid line receieved: missing phase: %s", line);
+			fatalx("Invalid line receieved: missing phase: %s", linedup);
 		phase++[0] = '\0';
 		if ((start = strchr(phase, '|')) == NULL)
-			fatalx("Invalid line received: missing reqid: %s", line);
+			fatalx("Invalid line received: missing reqid: %s", linedup);
 		start++[0] = '\0';
 		reqid = strtoull(start, &params, 16);
 		if (start[0] == '|' || (params[0] != '|' & params[0] != '\0'))
-			fatalx("Invalid line received: invalid reqid: %s", line);
+			fatalx("Invalid line received: invalid reqid: %s", linedup);
 		params++;
 
 		for (i = 0; i < NITEMS(smtp_callbacks); i++) {
@@ -169,19 +171,20 @@ smtp_newline(int fd, short event, void *arg)
 		}
 		if (i == NITEMS(smtp_callbacks)) {
 			fatalx("Invalid line received: received unregistered "
-			    "%s: %s: %s", type, phase, line);
+			    "%s: %s: %s", type, phase, linedup);
 		}
 		if (strcmp(type, "filter") == 0) {
 			start = params;
 			token = strtoull(start, &params, 16);
 			if (start[0] == '|' || params[0] != '|')
-				fatalx("Invalid line received: invalid token: %s", line);
+				fatalx("Invalid line received: invalid token: %s", linedup);
 			params++;
 			smtp_callbacks[i].smtp_filter(&(smtp_callbacks[i]),
 			    version, &tm, reqid, token, params);
 		} else
 			smtp_callbacks[i].smtp_report(&(smtp_callbacks[i]),
 			    version, &tm, reqid, params);
+		free(linedup);
 	}
 	if (feof(stdin) || (ferror(stdin) && errno != EAGAIN))
 		event_del(stdinev);
