@@ -24,16 +24,24 @@ static int smtp_register(char *, char *, char *, void *);
 static void smtp_newline(int, short, void *);
 static void smtp_connect(struct smtp_callback *, int, struct timespec *,
     uint64_t, uint64_t, char *);
+static void smtp_in_link_disconnect(struct smtp_callback *, int, struct timespec *,
+    uint64_t, char *);
 
 struct smtp_callback {
 	char *type;
 	char *phase;
 	char *direction;
-	void (*smtp_parse)(struct smtp_callback *, int, struct timespec *,
-	    uint64_t, uint64_t, char *);
+	union {
+		void (*smtp_filter)(struct smtp_callback *, int,
+		    struct timespec *, uint64_t, uint64_t, char *);
+		void (*smtp_report)(struct smtp_callback *, int,
+		    struct timespec *, uint64_t, char *);
+	};
 	void *cb;
 } smtp_callbacks[] = {
-        {"filter", "connect", "smtp-in", smtp_connect, NULL}
+        {"filter", "connect", "smtp-in", .smtp_filter = smtp_connect, NULL},
+	{"report", "link-disconnect", "smtp-in",
+	    .smtp_report = smtp_in_link_disconnect, NULL}
 };
 
 static int ready = 0;
@@ -43,6 +51,13 @@ smtp_register_filter_connect(void (*cb)(char *, int, struct timespec *, char *,
     char *, uint64_t, uint64_t, char *, struct inx_addr *))
 {
 	return smtp_register("filter", "connect", "smtp-in", (void *)cb);
+}
+
+int
+smtp_in_register_report_disconnect(void (*cb)(char *, int, struct timespec *,
+    char *, char *, uint64_t))
+{
+	return smtp_register("report", "link-disconnect", "smtp-in", (void *)cb);
 }
 
 void
@@ -114,15 +129,10 @@ smtp_newline(int fd, short event, void *arg)
 		if ((start = strchr(phase, '|')) == NULL)
 			errx(1, "Invalid line received: missing reqid");
 		start++[0] = '\0';
-		reqid = strtoull(start, &end, 16);
-		if (start[0] == '|' || end[0] != '|')
+		reqid = strtoull(start, &params, 16);
+		if (start[0] == '|' || (params[0] != '|' & params[0] != '\0'))
 			errx(1, "Invalid line received: invalid reqid");
-		end++[0] = '\0';
-		start = end;
-		token = strtoull(start, &end, 16);
-		if (start[0] == '|' || end[0] != '|')
-			errx(1, "Invalid line received: invalid token");
-		params = end + 1;
+		params++;
 
 		for (i = 0; i < NITEMS(smtp_callbacks); i++) {
 			if (strcmp(type, smtp_callbacks[i].type) == 0 &&
@@ -134,8 +144,17 @@ smtp_newline(int fd, short event, void *arg)
 			errx(1, "Invalid line received: received unregistered "
 			    "%s: %s", type, phase);
 		}
-		smtp_callbacks[i].smtp_parse(&(smtp_callbacks[i]), version, &tm,
-		    reqid, token, params);
+		if (strcmp(type, "filter") == 0) {
+			start = params;
+			token = strtoull(start, &params, 16);
+			if (start[0] == '|' || params[0] != '|')
+				errx(1, "Invalid line received: invalid token");
+			params++;
+			smtp_callbacks[i].smtp_filter(&(smtp_callbacks[i]),
+			    version, &tm, reqid, token, params);
+		} else
+			smtp_callbacks[i].smtp_report(&(smtp_callbacks[i]),
+			    version, &tm, reqid, params);
 	}
 	if (feof(stdin) || (ferror(stdin) && errno != EAGAIN))
 		event_del(stdinev);
@@ -173,6 +192,15 @@ smtp_connect(struct smtp_callback *cb, int version, struct timespec *tm,
 	f = cb->cb;
 	f(cb->type, version, tm, cb->direction, cb->phase, reqid, token,
 	    hostname, &addrx);
+}
+static void
+smtp_in_link_disconnect(struct smtp_callback *cb, int version,
+    struct timespec *tm, uint64_t reqid, char *params)
+{
+	void (*f)(char *, int, struct timespec *, char *, char *, uint64_t);
+
+	f = cb->cb;
+	f(cb->type, version, tm, cb->direction, cb->phase, reqid);
 }
 
 void
