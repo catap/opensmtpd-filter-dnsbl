@@ -38,4 +38,4 @@ void smtp_filter_disconnect(uint64_t, uint64_t, const char *, ...)
 	__attribute__((__format__ (printf, 3, 4)));
 void smtp_filter_dataline(uint64_t, uint64_t, const char *, ...)
 	__attribute__((__format__ (printf, 3, 4)));
-void smtp_run(void);
+void smtp_run(int);
