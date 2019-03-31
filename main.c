@@ -20,6 +20,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <event.h>
+#include <inttypes.h>
 #include <netdb.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -47,6 +48,8 @@ struct dnsbl_session {
 	uint64_t token;
 	char addr[INET6_ADDRSTRLEN];
 	int listed;
+	int set_header;
+	int logged_mark;
 	struct dnsbl_query *query;
 	RB_ENTRY(dnsbl_session) entry;
 };
@@ -61,6 +64,8 @@ static int markspam = 0;
 void usage(void);
 void dnsbl_connect(char *, int, struct timespec *, char *, char *, uint64_t,
     uint64_t, char *, struct inx_addr *);
+void dnsbl_data(char *, int, struct timespec *, char *, char *, uint64_t,
+    uint64_t);
 void dnsbl_dataline(char *, int, struct timespec *, char *, char *, uint64_t,
     uint64_t, char *);
 void dnsbl_disconnect(char *, int, struct timespec *, char *, char *, uint64_t);
@@ -103,8 +108,10 @@ main(int argc, char *argv[])
 		blacklists[i] = argv[optind + i];
 
 	smtp_register_filter_connect(dnsbl_connect);
-	if (markspam)
+	if (markspam) {
+		smtp_register_filter_data(dnsbl_data);
 		smtp_register_filter_dataline(dnsbl_dataline);
+	}
 	smtp_in_register_report_disconnect(dnsbl_disconnect);
 	smtp_run(debug);
 
@@ -130,6 +137,8 @@ dnsbl_connect(char *type, int version, struct timespec *tm, char *direction,
 	session->reqid = reqid;
 	session->token = token;
 	session->listed = -1;
+	session->set_header = 0;
+	session->logged_mark = 0;
 	if (inet_ntop(xaddr->af, xaddr->af == AF_INET ?
 	    (void *)&(xaddr->addr) : (void *)&(xaddr->addr6), session->addr,
 	    sizeof(session->addr)) == NULL)
@@ -199,15 +208,14 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 		if (!markspam) {
 			smtp_filter_disconnect(session->reqid, session->token,
 			    "Listed at %s", blacklists[query->blacklist]);
-			log_info("Rejected %s: listed at %s", session->addr,
-			    blacklists[query->blacklist]);
+			log_info("%016"PRIx64" listed at %s: rejected",
+			    session->reqid, blacklists[query->blacklist]);
 			dnsbl_session_free(session);
 		} else {
 			dnsbl_session_query_done(session);
 			session->listed = query->blacklist;
 			smtp_filter_proceed(session->reqid, session->token);
-			log_info("Marked as spam %s: listed at %s", session->addr,
-			    blacklists[query->blacklist]);
+			/* Delay logging until we have a message */
 		}
 		return;
 	}
@@ -223,7 +231,7 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 			return;
 	}
 	smtp_filter_proceed(session->reqid, session->token);
-	log_info("%s not listed", session->addr);
+	log_info("%016"PRIx64" not listed", session->reqid);
 	if (!markspam)
 		dnsbl_session_free(session);
 }
@@ -251,6 +259,26 @@ dnsbl_disconnect(char *type, int version, struct timespec *tm, char *direction,
 }
 
 void
+dnsbl_data(char *type, int version, struct timespec *tm, char *direction,
+    char *phase, uint64_t reqid, uint64_t token)
+{
+	struct dnsbl_session *session, search;
+
+	search.reqid = reqid;
+	session = RB_FIND(dnsbl_sessions, &dnsbl_sessions, &search);
+
+	if (session->listed != -1) {
+		if (!session->logged_mark) {
+			log_info("%016"PRIx64" listed at %s: Marking as spam",
+			    session->reqid, blacklists[session->listed]);
+			session->logged_mark = 1;
+		}
+		session->set_header = 1;
+	}
+	smtp_filter_proceed(reqid, token);
+}
+
+void
 dnsbl_dataline(char *type, int version, struct timespec *tm, char *direction,
     char *phase, uint64_t reqid, uint64_t token, char *line)
 {
@@ -259,11 +287,12 @@ dnsbl_dataline(char *type, int version, struct timespec *tm, char *direction,
 	search.reqid = reqid;
 	session = RB_FIND(dnsbl_sessions, &dnsbl_sessions, &search);
 
-	if (session->listed != -1) {
+	if (session->set_header) {
 		smtp_filter_dataline(reqid, token, "X-Spam: yes");
 		smtp_filter_dataline(reqid, token, "X-Spam-DNSBL: Listed at %s",
 		    blacklists[session->listed]);
-		session->listed = -1;
+		session->set_header = 0;
+		
 	}
 	smtp_filter_dataline(reqid, token, "%s", line);
 }
