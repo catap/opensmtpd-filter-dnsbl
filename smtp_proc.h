@@ -27,6 +27,8 @@ struct inx_addr {
 
 int smtp_register_filter_connect(void (*)(char *, int, struct timespec *,
     char *, char *, uint64_t, uint64_t, char *, struct inx_addr *));
+int smtp_register_filter_data(void (*)(char *, int, struct timespec *, char *,
+    char *, uint64_t, uint64_t));
 int smtp_register_filter_dataline(void (*)(char *, int, struct timespec *, char *,
     char *, uint64_t, uint64_t, char *));
 int smtp_in_register_report_disconnect(void (*)(char *, int, struct timespec *,
