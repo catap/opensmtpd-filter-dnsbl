@@ -41,6 +41,8 @@ static ssize_t smtp_getline(char ** restrict, size_t * restrict);
 static void smtp_newline(int, short, void *);
 static void smtp_connect(struct smtp_callback *, int, struct timespec *,
     uint64_t, uint64_t, char *);
+static void smtp_data(struct smtp_callback *, int, struct timespec *,
+    uint64_t, uint64_t, char *);
 static void smtp_dataline(struct smtp_callback *, int, struct timespec *,
     uint64_t, uint64_t, char *);
 static void smtp_in_link_disconnect(struct smtp_callback *, int, struct timespec *,
@@ -59,6 +61,7 @@ struct smtp_callback {
 	void *cb;
 } smtp_callbacks[] = {
         {"filter", "connect", "smtp-in", .smtp_filter = smtp_connect, NULL},
+        {"filter", "data", "smtp-in", .smtp_filter = smtp_data, NULL},
         {"filter", "data-line", "smtp-in", .smtp_filter = smtp_dataline, NULL},
 	{"report", "link-disconnect", "smtp-in",
 	    .smtp_report = smtp_in_link_disconnect, NULL}
@@ -71,6 +74,13 @@ smtp_register_filter_connect(void (*cb)(char *, int, struct timespec *, char *,
     char *, uint64_t, uint64_t, char *, struct inx_addr *))
 {
 	return smtp_register("filter", "connect", "smtp-in", (void *)cb);
+}
+
+int
+smtp_register_filter_data(void (*cb)(char *, int, struct timespec *, char *,
+    char *, uint64_t, uint64_t))
+{
+	return smtp_register("filter", "data", "smtp-in", (void *)cb);
 }
 
 int
@@ -273,10 +283,21 @@ smtp_connect(struct smtp_callback *cb, int version, struct timespec *tm,
 }
 
 static void
+smtp_data(struct smtp_callback *cb, int version, struct timespec *tm,
+    uint64_t reqid, uint64_t token, char *params)
+{
+	void (*f)(char *, int, struct timespec *, char *, char *, uint64_t,
+	    uint64_t);
+
+	f = cb->cb;
+	f(cb->type, version, tm, cb->direction, cb->phase, reqid, token);
+}
+
+static void
 smtp_dataline(struct smtp_callback *cb, int version, struct timespec *tm,
     uint64_t reqid, uint64_t token, char *line)
 {
-	void (*f)(char *, int, struct timespec *,char *, char *, uint64_t,
+	void (*f)(char *, int, struct timespec *, char *, char *, uint64_t,
 	    uint64_t, char *);
 
 	f = cb->cb;
