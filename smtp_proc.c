@@ -386,7 +386,7 @@ smtp_write(int fd, short event, void *arg)
 	}
 	wlen = write(fd, buf->buf, buf->buflen);
 	if (wlen == -1) {
-		if (errno != EAGAIN || errno != EINTR)
+		if (errno != EAGAIN && errno != EINTR)
 			fatal("Failed to write to smtpd");
 		event_add(&ev, NULL);
 		return;
