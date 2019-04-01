@@ -47,6 +47,16 @@ static void smtp_dataline(struct smtp_callback *, int, struct timespec *,
     uint64_t, uint64_t, char *);
 static void smtp_in_link_disconnect(struct smtp_callback *, int, struct timespec *,
     uint64_t, char *);
+static void smtp_printf(const char *, ...)
+	__attribute__((__format__ (printf, 1, 2)));
+static void smtp_vprintf(const char *, va_list);
+static void smtp_write(int, short, void *);
+
+struct smtp_writebuf {
+	char *buf;
+	size_t bufsize;
+	size_t buflen;
+};
 
 struct smtp_callback {
 	char *type;
@@ -102,8 +112,7 @@ smtp_run(int debug)
 {
 	struct event stdinev;
 
-	printf("register|ready\n");
-	fflush(stdout);
+	smtp_printf("register|ready\n");
 	ready = 1;
 
 	log_init(debug, LOG_MAIL);
@@ -318,9 +327,75 @@ smtp_in_link_disconnect(struct smtp_callback *cb, int version,
 void
 smtp_filter_proceed(uint64_t reqid, uint64_t token)
 {
-	printf("filter-result|%016"PRIx64"|%016"PRIx64"|proceed\n", token,
+	smtp_printf("filter-result|%016"PRIx64"|%016"PRIx64"|proceed\n", token,
 	    reqid);
-	fflush(stdout);
+}
+
+static void
+smtp_printf(const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	smtp_vprintf(fmt, ap);
+	va_end(ap);
+}
+
+static void
+smtp_vprintf(const char *fmt, va_list ap)
+{
+	va_list cap;
+	static struct smtp_writebuf buf = {NULL, 0, 0};
+	int fmtlen;
+
+	va_copy(cap, ap);
+	fmtlen = vsnprintf(buf.buf + buf.buflen, buf.bufsize - buf.buflen, fmt,
+	    ap);
+	if (fmtlen == -1)
+		fatal("vsnprintf");
+	if (fmtlen >= buf.bufsize - buf.buflen) {
+		buf.bufsize = buf.buflen + fmtlen + 1;
+		buf.buf = reallocarray(buf.buf, buf.bufsize,
+		    sizeof(*(buf.buf)));
+		if (buf.buf == NULL)
+			fatalx(NULL);
+		fmtlen = vsnprintf(buf.buf + buf.buflen,
+		    buf.bufsize - buf.buflen, fmt, cap);
+		if (fmtlen == -1)
+			fatal("vsnprintf");
+	}
+	buf.buflen += fmtlen;
+
+	if (strchr(buf.buf, '\n') != NULL)
+		smtp_write(STDOUT_FILENO, EV_WRITE, &buf);
+}
+
+static void
+smtp_write(int fd, short event, void *arg)
+{
+	struct smtp_writebuf *buf = arg;
+	static struct event ev;
+	static int evset = 0;
+	ssize_t wlen;
+
+	if (buf->buflen == 0)
+		return;
+	if (!evset) {
+		event_set(&ev, fd, EV_WRITE, smtp_write, buf);
+		evset = 1;
+	}
+	wlen = write(fd, buf->buf, buf->buflen);
+	if (wlen == -1) {
+		if (errno != EAGAIN || errno != EINTR)
+			fatal("Failed to write to smtpd");
+		event_add(&ev, NULL);
+		return;
+	}
+	if (wlen < buf->buflen) {
+		memmove(buf->buf, buf->buf + wlen, buf->buflen - wlen);
+		event_add(&ev, NULL);
+	}
+	buf->buflen -= wlen;
 }
 
 void
@@ -332,13 +407,12 @@ smtp_filter_reject(uint64_t reqid, uint64_t token, int code,
 	if (code < 200 || code > 599)
 		fatalx("Invalid reject code");
 
-	printf("filter-result|%016"PRIx64"|%016"PRIx64"|reject|%d ", token,
+	smtp_printf("filter-result|%016"PRIx64"|%016"PRIx64"|reject|%d ", token,
 	    reqid, code);
 	va_start(ap, reason);
-	vprintf(reason, ap);
+	smtp_vprintf(reason, ap);
 	va_end(ap);
-	putchar('\n');
-	fflush(stdout);
+	smtp_printf("\n");
 }
 
 void
@@ -346,13 +420,12 @@ smtp_filter_disconnect(uint64_t reqid, uint64_t token, const char *reason, ...)
 {
 	va_list ap;
 
-	printf("filter-result|%016"PRIx64"|%016"PRIx64"|disconnect|421 ",
+	smtp_printf("filter-result|%016"PRIx64"|%016"PRIx64"|disconnect|421 ",
 	    token, reqid);
 	va_start(ap, reason);
-	vprintf(reason, ap);
+	smtp_vprintf(reason, ap);
 	va_end(ap);
-	putchar('\n');
-	fflush(stdout);
+	smtp_printf("\n");
 }
 
 void
@@ -360,12 +433,11 @@ smtp_filter_dataline(uint64_t reqid, uint64_t token, const char *line, ...)
 {
 	va_list ap;
 
-	printf("filter-dataline|%016"PRIx64"|%016"PRIx64"|", token, reqid);
+	smtp_printf("filter-dataline|%016"PRIx64"|%016"PRIx64"|", token, reqid);
 	va_start(ap, line);
-	vprintf(line, ap);
+	smtp_vprintf(line, ap);
 	va_end(ap);
-	putchar('\n');
-	fflush(stdout);
+	smtp_printf("\n");
 }
 
 static int
@@ -385,7 +457,8 @@ smtp_register(char *type, char *phase, char *direction, void *cb)
 				return -1;
 			}
 			smtp_callbacks[i].cb = cb;
-			printf("register|%s|%s|%s\n", type, direction, phase);
+			smtp_printf("register|%s|%s|%s\n", type, direction,
+			    phase);
 			return 0;
 		}
 	}
