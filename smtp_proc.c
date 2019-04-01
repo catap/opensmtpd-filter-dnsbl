@@ -36,6 +36,8 @@
 struct smtp_callback;
 struct smtp_request;
 
+extern struct event_base *current_base;
+
 static int smtp_register(char *, char *, char *, void *);
 static ssize_t smtp_getline(char ** restrict, size_t * restrict);
 static void smtp_newline(int, short, void *);
@@ -116,7 +118,6 @@ smtp_run(int debug)
 	ready = 1;
 
 	log_init(debug, LOG_MAIL);
-	event_init();
 	event_set(&stdinev, STDIN_FILENO, EV_READ | EV_PERSIST, smtp_newline,
 	    &stdinev);
 	event_add(&stdinev, NULL);
@@ -444,9 +445,13 @@ static int
 smtp_register(char *type, char *phase, char *direction, void *cb)
 {
 	int i;
+	static int evinit = 0;
 
 	if (ready)
 		fatalx("Can't register when proc is running");
+
+	if (!evinit)
+		event_init();
 
 	for (i = 0; i < NITEMS(smtp_callbacks); i++) {
 		if (strcmp(type, smtp_callbacks[i].type) == 0 &&
