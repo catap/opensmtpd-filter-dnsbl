@@ -365,6 +365,7 @@ smtp_vprintf(const char *fmt, va_list ap)
 		if (fmtlen == -1)
 			fatal("vsnprintf");
 	}
+	va_end(cap);
 	buf.buflen += fmtlen;
 
 	if (strchr(buf.buf, '\n') != NULL)
