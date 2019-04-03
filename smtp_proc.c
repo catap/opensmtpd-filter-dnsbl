@@ -450,8 +450,10 @@ smtp_register(char *type, char *phase, char *direction, void *cb)
 	if (ready)
 		fatalx("Can't register when proc is running");
 
-	if (!evinit)
+	if (!evinit) {
 		event_init();
+		evinit = 1;
+	}
 
 	for (i = 0; i < NITEMS(smtp_callbacks); i++) {
 		if (strcmp(type, smtp_callbacks[i].type) == 0 &&
