@@ -375,26 +375,28 @@ static void
 smtp_write(int fd, short event, void *arg)
 {
 	struct smtp_writebuf *buf = arg;
-	static struct event ev;
+	static struct event stdoutev;
 	static int evset = 0;
 	ssize_t wlen;
 
 	if (buf->buflen == 0)
 		return;
+	if (event_pending(&stdoutev, EV_WRITE, NULL))
+		return;
 	if (!evset) {
-		event_set(&ev, fd, EV_WRITE, smtp_write, buf);
+		event_set(&stdoutev, fd, EV_WRITE, smtp_write, buf);
 		evset = 1;
 	}
 	wlen = write(fd, buf->buf, buf->buflen);
 	if (wlen == -1) {
 		if (errno != EAGAIN && errno != EINTR)
 			fatal("Failed to write to smtpd");
-		event_add(&ev, NULL);
+		event_add(&stdoutev, NULL);
 		return;
 	}
 	if (wlen < buf->buflen) {
 		memmove(buf->buf, buf->buf + wlen, buf->buflen - wlen);
-		event_add(&ev, NULL);
+		event_add(&stdoutev, NULL);
 	}
 	buf->buflen -= wlen;
 }
