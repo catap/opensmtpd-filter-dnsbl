@@ -177,9 +177,9 @@ static void
 smtp_newline(int fd, short event, void *arg)
 {
 	struct event *stdinev = (struct event *)arg;
-	char *line = NULL, *linedup = NULL;
-	size_t linesize = 0;
-	size_t dupsize = 0;
+	static char *line = NULL, *linedup = NULL;
+	static size_t linesize = 0;
+	static size_t dupsize = 0;
 	ssize_t linelen;
 	char *start, *end, *type, *direction, *phase, *params;
 	int version;
