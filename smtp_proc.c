@@ -158,14 +158,18 @@ smtp_getline(char ** restrict buf, size_t * restrict size)
 				return strlen;
 			}
 		}
-		if (reoff - rsoff < 1500) {
+		/* If we can't fill at the end, move everything back. */
+		if (rbsize - reoff < 1500 && rsoff != 0) {
+			memmove(rbuf, rbuf + rsoff, reoff - rsoff);
+			reoff -= rsoff;
+			rsoff = 0;
+		}
+		/* If we still can't fill alloc some new memory. */
+		if (rbsize - reoff < 1500) {
 			if ((rbuf = realloc(rbuf, rbsize + 4096)) == NULL)
 				fatal(NULL);
 			rbsize += 4096;
 		}
-		// If we can't fill at the end, move everything back.
-		if (rbsize - reoff < 1500)
-			memmove(rbuf + rsoff, rbuf, reoff - rsoff);
 		nread = read(STDIN_FILENO, rbuf + reoff, rbsize - reoff);
 		if (nread <= 0)
 			return nread;
