@@ -232,8 +232,6 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 	}
 	smtp_filter_proceed(session->reqid, session->token);
 	log_info("%016"PRIx64" not listed", session->reqid);
-	if (!markspam)
-		dnsbl_session_free(session);
 }
 
 void
