@@ -306,6 +306,7 @@ dnsbl_session_query_done(struct dnsbl_session *session)
 		if (!session->query[i].resolved) {
 			event_asr_abort(session->query[i].event);
 			evtimer_del(&(session->query[i].timeout));
+			session->query[i].resolved = 1;
 		}
 	}
 }
