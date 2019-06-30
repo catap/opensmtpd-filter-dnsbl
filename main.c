@@ -18,6 +18,7 @@
 #include <sys/socket.h>
 
 #include <arpa/inet.h>
+#include <err.h>
 #include <errno.h>
 #include <event.h>
 #include <inttypes.h>
@@ -29,7 +30,6 @@
 #include <unistd.h>
 #include <asr.h>
 
-#include "log.h"
 #include "smtp_proc.h"
 
 struct dnsbl_session;
@@ -80,11 +80,8 @@ main(int argc, char *argv[])
 	int i;
 	int debug = 0;
 
-	while ((ch = getopt(argc, argv, "dm")) != -1) {
+	while ((ch = getopt(argc, argv, "m")) != -1) {
 		switch (ch) {
-		case 'd':
-			debug = 1;
-			break;
 		case 'm':
 			markspam = 1;
 			break;
@@ -93,15 +90,14 @@ main(int argc, char *argv[])
 		}
 	}
 
-	log_init(debug, LOG_MAIL);
 	if (pledge("stdio dns", NULL) == -1)
-		fatal("pledge");
+		err(1, "pledge");
 
 	if ((nblacklists = argc - optind) == 0)
-		fatalx("No blacklist specified");
+		errx(1, "No blacklist specified");
 
 	if ((blacklists = calloc(nblacklists, sizeof(*blacklists))) == NULL)
-		fatal(NULL);
+		err(1, NULL);
 	for (i = 0; i < nblacklists; i++)
 		blacklists[i] = argv[optind + i];
 
@@ -127,10 +123,10 @@ dnsbl_connect(char *type, int version, struct timespec *tm, char *direction,
 	int i, try;
 
 	if ((session = calloc(1, sizeof(*session))) == NULL)
-		fatal(NULL);
+		err(1, NULL);
 	if ((session->query = calloc(nblacklists, sizeof(*(session->query))))
 	    == NULL)
-		fatal(NULL);
+		err(1, NULL);
 	session->reqid = reqid;
 	session->token = token;
 	session->listed = -1;
@@ -139,7 +135,7 @@ dnsbl_connect(char *type, int version, struct timespec *tm, char *direction,
 	if (inet_ntop(xaddr->af, xaddr->af == AF_INET ?
 	    (void *)&(xaddr->addr) : (void *)&(xaddr->addr6), session->addr,
 	    sizeof(session->addr)) == NULL)
-		fatal("inet_ntop");
+		err(1, "inet_ntop");
 
 	RB_INSERT(dnsbl_sessions, &dnsbl_sessions, session);
 
@@ -152,7 +148,7 @@ dnsbl_connect(char *type, int version, struct timespec *tm, char *direction,
 			if (snprintf(query, sizeof(query), "%u.%u.%u.%u.%s",
 			    addr[3], addr[2], addr[1], addr[0],
 			    blacklists[i]) >= sizeof(query))
-				fatalx("Can't create query, domain too long");
+				errx(1, "Can't create query, domain too long");
 		} else if (xaddr->af == AF_INET6) {
 			if (snprintf(query, sizeof(query), "%hhx.%hhx.%hhx.%hhx"
 			    ".%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx"
@@ -175,9 +171,9 @@ dnsbl_connect(char *type, int version, struct timespec *tm, char *direction,
 			    (u_char) (addr[1] & 0xf), (u_char) (addr[1] >> 4),
 			    (u_char) (addr[0] & 0xf), (u_char) (addr[0] >> 4),
 			    blacklists[i]) >= sizeof(query))
-				fatalx( "Can't create query, domain too long");
+				errx(1, "Can't create query, domain too long");
 		} else
-			fatalx("Invalid address family received");
+			errx(1, "Invalid address family received");
 
 		session->query[i].query = gethostbyname_async(query, NULL);
 		session->query[i].event = event_asr_run(session->query[i].query,
@@ -201,7 +197,7 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 		if (!markspam) {
 			smtp_filter_disconnect(session->reqid, session->token,
 			    "Listed at %s", blacklists[query->blacklist]);
-			log_info("%016"PRIx64" listed at %s: rejected",
+			warnx("%016"PRIx64" listed at %s: rejected",
 			    session->reqid, blacklists[query->blacklist]);
 			dnsbl_session_free(session);
 		} else {
@@ -224,7 +220,7 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 			return;
 	}
 	smtp_filter_proceed(session->reqid, session->token);
-	log_info("%016"PRIx64" not listed", session->reqid);
+	warnx("%016"PRIx64" not listed", session->reqid);
 }
 
 void
@@ -249,7 +245,7 @@ dnsbl_data(char *type, int version, struct timespec *tm, char *direction,
 
 	if (session->listed != -1) {
 		if (!session->logged_mark) {
-			log_info("%016"PRIx64" listed at %s: Marking as spam",
+			warnx("%016"PRIx64" listed at %s: Marking as spam",
 			    session->reqid, blacklists[session->listed]);
 			session->logged_mark = 1;
 		}
