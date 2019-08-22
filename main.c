@@ -17,12 +17,12 @@
 #include <sys/socket.h>
 
 #include <arpa/inet.h>
-#include <err.h>
 #include <errno.h>
 #include <event.h>
 #include <inttypes.h>
 #include <netdb.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <syslog.h>
@@ -62,6 +62,8 @@ void dnsbl_resolve(struct asr_result *, void *);
 void dnsbl_session_query_done(struct dnsbl_session *);
 void *dnsbl_session_new(struct osmtpd_ctx *);
 void dnsbl_session_free(struct osmtpd_ctx *, void *);
+void dnsbl_err(const char *, ...);
+void dnsbl_errx(const char *, ...);
 
 int
 main(int argc, char *argv[])
@@ -83,13 +85,13 @@ main(int argc, char *argv[])
 	}
 
 	if (pledge("stdio dns", NULL) == -1)
-		err(1, "pledge");
+		dnsbl_err("pledge");
 
 	if ((nblacklists = argc - optind) == 0)
-		errx(1, "No blacklist specified");
+		dnsbl_errx("No blacklist specified");
 
 	if ((blacklists = calloc(nblacklists, sizeof(*blacklists))) == NULL)
-		err(1, NULL);
+		dnsbl_err("malloc");
 	for (i = 0; i < nblacklists; i++)
 		blacklists[i] = argv[optind + i];
 
@@ -123,7 +125,7 @@ dnsbl_connect(struct osmtpd_ctx *ctx, const char *hostname,
 			if (snprintf(query, sizeof(query), "%u.%u.%u.%u.%s",
 			    addr[3], addr[2], addr[1], addr[0],
 			    blacklists[i]) >= (int) sizeof(query))
-				errx(1, "Can't create query, domain too long");
+				dnsbl_errx("Can't create query, domain too long");
 		} else if (ss->ss_family == AF_INET6) {
 			if (snprintf(query, sizeof(query), "%hhx.%hhx.%hhx.%hhx"
 			    ".%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx"
@@ -146,9 +148,9 @@ dnsbl_connect(struct osmtpd_ctx *ctx, const char *hostname,
 			    (u_char) (addr[1] & 0xf), (u_char) (addr[1] >> 4),
 			    (u_char) (addr[0] & 0xf), (u_char) (addr[0] >> 4),
 			    blacklists[i]) >= (int) sizeof(query))
-				errx(1, "Can't create query, domain too long");
+				dnsbl_errx("Can't create query, domain too long");
 		} else
-			errx(1, "Invalid address family received");
+			dnsbl_errx("Invalid address family received");
 
 		aq = gethostbyname_async(query, NULL);
 		session->query[i].event = event_asr_run(aq, dnsbl_resolve,
@@ -171,7 +173,7 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 		if (!markspam) {
 			osmtpd_filter_disconnect(session->ctx, "Listed at %s",
 			    blacklists[query->blacklist]);
-			warnx("%016"PRIx64" listed at %s: rejected",
+			fprintf(stderr, "%016"PRIx64" listed at %s: rejected\n",
 			    session->ctx->reqid, blacklists[query->blacklist]);
 		} else {
 			dnsbl_session_query_done(session);
@@ -193,7 +195,8 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 	}
 	osmtpd_filter_proceed(session->ctx);
 	if (verbose)
-		warnx("%016"PRIx64" not listed", session->ctx->reqid);
+		fprintf(stderr, "%016"PRIx64" not listed\n",
+		    session->ctx->reqid);
 }
 
 void
@@ -203,8 +206,8 @@ dnsbl_begin(struct osmtpd_ctx *ctx, uint32_t msgid)
 
 	if (session->listed != -1) {
 		if (!session->logged_mark) {
-			warnx("%016"PRIx64" listed at %s: Marking as spam",
-			    ctx->reqid, blacklists[session->listed]);
+			fprintf(stderr, "%016"PRIx64" listed at %s: Marking as "
+			    "spam\n", ctx->reqid, blacklists[session->listed]);
 			session->logged_mark = 1;
 		}
 		session->set_header = 1;
@@ -245,10 +248,10 @@ dnsbl_session_new(struct osmtpd_ctx *ctx)
 	struct dnsbl_session *session;
 
 	if ((session = calloc(1, sizeof(*session))) == NULL)
-		err(1, NULL);
+		dnsbl_err("malloc");
 	if ((session->query = calloc(nblacklists, sizeof(*(session->query))))
 	    == NULL)
-		err(1, NULL);
+		dnsbl_err("malloc");
 	session->listed = -1;
 	session->set_header = 0;
 	session->logged_mark = 0;
@@ -265,6 +268,30 @@ dnsbl_session_free(struct osmtpd_ctx *ctx, void *data)
 	dnsbl_session_query_done(session);
 	free(session->query);
 	free(session);
+}
+
+void
+dnsbl_err(const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	fprintf(stderr, "%s\n", strerror(errno));
+	va_end(ap);
+	exit(1);
+}
+
+void
+dnsbl_errx(const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	fprintf(stderr, "\n");
+	va_end(ap);
+	exit(1);
 }
 
 __dead void
