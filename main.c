@@ -62,8 +62,6 @@ void dnsbl_resolve(struct asr_result *, void *);
 void dnsbl_session_query_done(struct dnsbl_session *);
 void *dnsbl_session_new(struct osmtpd_ctx *);
 void dnsbl_session_free(struct osmtpd_ctx *, void *);
-void dnsbl_err(const char *, ...);
-void dnsbl_errx(const char *, ...);
 
 int
 main(int argc, char *argv[])
@@ -85,13 +83,13 @@ main(int argc, char *argv[])
 	}
 
 	if (pledge("stdio dns", NULL) == -1)
-		dnsbl_err("pledge");
+		osmtpd_err(1, "pledge");
 
 	if ((nblacklists = argc - optind) == 0)
-		dnsbl_errx("No blacklist specified");
+		osmtpd_errx(1, "No blacklist specified");
 
 	if ((blacklists = calloc(nblacklists, sizeof(*blacklists))) == NULL)
-		dnsbl_err("malloc");
+		osmtpd_err(1, "malloc");
 	for (i = 0; i < nblacklists; i++)
 		blacklists[i] = argv[optind + i];
 
@@ -125,7 +123,7 @@ dnsbl_connect(struct osmtpd_ctx *ctx, const char *hostname,
 			if (snprintf(query, sizeof(query), "%u.%u.%u.%u.%s",
 			    addr[3], addr[2], addr[1], addr[0],
 			    blacklists[i]) >= (int) sizeof(query))
-				dnsbl_errx("Can't create query, domain too long");
+				osmtpd_errx(1, "Can't create query, domain too long");
 		} else if (ss->ss_family == AF_INET6) {
 			if (snprintf(query, sizeof(query), "%hhx.%hhx.%hhx.%hhx"
 			    ".%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx"
@@ -148,9 +146,9 @@ dnsbl_connect(struct osmtpd_ctx *ctx, const char *hostname,
 			    (u_char) (addr[1] & 0xf), (u_char) (addr[1] >> 4),
 			    (u_char) (addr[0] & 0xf), (u_char) (addr[0] >> 4),
 			    blacklists[i]) >= (int) sizeof(query))
-				dnsbl_errx("Can't create query, domain too long");
+				osmtpd_errx(1, "Can't create query, domain too long");
 		} else
-			dnsbl_errx("Invalid address family received");
+			osmtpd_errx(1, "Invalid address family received");
 
 		aq = gethostbyname_async(query, NULL);
 		session->query[i].event = event_asr_run(aq, dnsbl_resolve,
@@ -248,10 +246,10 @@ dnsbl_session_new(struct osmtpd_ctx *ctx)
 	struct dnsbl_session *session;
 
 	if ((session = calloc(1, sizeof(*session))) == NULL)
-		dnsbl_err("malloc");
+		osmtpd_err(1, "malloc");
 	if ((session->query = calloc(nblacklists, sizeof(*(session->query))))
 	    == NULL)
-		dnsbl_err("malloc");
+		osmtpd_err(1, "malloc");
 	session->listed = -1;
 	session->set_header = 0;
 	session->logged_mark = 0;
@@ -268,30 +266,6 @@ dnsbl_session_free(struct osmtpd_ctx *ctx, void *data)
 	dnsbl_session_query_done(session);
 	free(session->query);
 	free(session);
-}
-
-void
-dnsbl_err(const char *fmt, ...)
-{
-	va_list ap;
-
-	va_start(ap, fmt);
-	vfprintf(stderr, fmt, ap);
-	fprintf(stderr, "%s\n", strerror(errno));
-	va_end(ap);
-	exit(1);
-}
-
-void
-dnsbl_errx(const char *fmt, ...)
-{
-	va_list ap;
-
-	va_start(ap, fmt);
-	vfprintf(stderr, fmt, ap);
-	fprintf(stderr, "\n");
-	va_end(ap);
-	exit(1);
 }
 
 __dead void
