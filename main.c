@@ -51,6 +51,7 @@ struct dnsbl_session {
 static char **blacklists = NULL;
 static size_t nblacklists = 0;
 static int markspam = 0;
+static int verbose = 0;
 
 void usage(void);
 void dnsbl_connect(struct osmtpd_ctx *, const char *,
@@ -68,10 +69,13 @@ main(int argc, char *argv[])
 	int ch;
 	size_t i;
 
-	while ((ch = getopt(argc, argv, "m")) != -1) {
+	while ((ch = getopt(argc, argv, "mv")) != -1) {
 		switch (ch) {
 		case 'm':
 			markspam = 1;
+			break;
+		case 'v':
+			verbose = 1;
 			break;
 		default:
 			usage();
@@ -188,7 +192,8 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 			return;
 	}
 	osmtpd_filter_proceed(session->ctx);
-	warnx("%016"PRIx64" not listed", session->ctx->reqid);
+	if (verbose)
+		warnx("%016"PRIx64" not listed", session->ctx->reqid);
 }
 
 void
