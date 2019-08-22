@@ -13,7 +13,6 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-#include <sys/tree.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 
@@ -30,12 +29,11 @@
 #include <unistd.h>
 #include <asr.h>
 
-#include "smtp_proc.h"
+#include "opensmtpd.h"
 
 struct dnsbl_session;
 
 struct dnsbl_query {
-	struct asr_query *query;
 	struct event_asr *event;
 	int resolved;
 	int blacklist;
@@ -43,42 +41,32 @@ struct dnsbl_query {
 };
 
 struct dnsbl_session {
-	uint64_t reqid;
-	uint64_t token;
-	char addr[INET6_ADDRSTRLEN];
 	int listed;
 	int set_header;
 	int logged_mark;
 	struct dnsbl_query *query;
-	RB_ENTRY(dnsbl_session) entry;
+	struct osmtpd_ctx *ctx;
 };
-
-RB_HEAD(dnsbl_sessions, dnsbl_session) dnsbl_sessions = RB_INITIALIZER(NULL);
-RB_PROTOTYPE(dnsbl_sessions, dnsbl_session, entry, dnsbl_session_cmp);
 
 static char **blacklists = NULL;
 static size_t nblacklists = 0;
 static int markspam = 0;
 
 void usage(void);
-void dnsbl_connect(char *, int, struct timespec *, char *, char *, uint64_t,
-    uint64_t, char *, struct inx_addr *);
-void dnsbl_data(char *, int, struct timespec *, char *, char *, uint64_t,
-    uint64_t);
-void dnsbl_dataline(char *, int, struct timespec *, char *, char *, uint64_t,
-    uint64_t, char *);
-void dnsbl_disconnect(char *, int, struct timespec *, char *, char *, uint64_t);
+void dnsbl_connect(struct osmtpd_ctx *, const char *,
+    struct sockaddr_storage *);
+void dnsbl_begin(struct osmtpd_ctx *, uint32_t);
+void dnsbl_dataline(struct osmtpd_ctx *, const char *);
 void dnsbl_resolve(struct asr_result *, void *);
 void dnsbl_session_query_done(struct dnsbl_session *);
-void dnsbl_session_free(struct dnsbl_session *);
-int dnsbl_session_cmp(struct dnsbl_session *, struct dnsbl_session *);
+void *dnsbl_session_new(struct osmtpd_ctx *);
+void dnsbl_session_free(struct osmtpd_ctx *, void *);
 
 int
 main(int argc, char *argv[])
 {
 	int ch;
-	int i;
-	int debug = 0;
+	size_t i;
 
 	while ((ch = getopt(argc, argv, "m")) != -1) {
 		switch (ch) {
@@ -101,55 +89,38 @@ main(int argc, char *argv[])
 	for (i = 0; i < nblacklists; i++)
 		blacklists[i] = argv[optind + i];
 
-	smtp_register_filter_connect(dnsbl_connect);
+	osmtpd_register_filter_connect(dnsbl_connect);
+	osmtpd_local_session(dnsbl_session_new, dnsbl_session_free);
 	if (markspam) {
-		smtp_register_filter_data(dnsbl_data);
-		smtp_register_filter_dataline(dnsbl_dataline);
+		osmtpd_register_report_begin(1, dnsbl_begin);
+		osmtpd_register_filter_dataline(dnsbl_dataline);
 	}
-	smtp_in_register_report_disconnect(dnsbl_disconnect);
-	smtp_run(debug);
+	osmtpd_run();
 
 	return 0;
 }
 
 void
-dnsbl_connect(char *type, int version, struct timespec *tm, char *direction,
-    char *phase, uint64_t reqid, uint64_t token, char *hostname,
-    struct inx_addr *xaddr)
+dnsbl_connect(struct osmtpd_ctx *ctx, const char *hostname,
+    struct sockaddr_storage *ss)
 {
-	struct dnsbl_session *session;
+	struct dnsbl_session *session = ctx->local_session;
+	struct asr_query *aq;
 	char query[255];
 	u_char *addr;
-	int i, try;
+	size_t i;
 
-	if ((session = calloc(1, sizeof(*session))) == NULL)
-		err(1, NULL);
-	if ((session->query = calloc(nblacklists, sizeof(*(session->query))))
-	    == NULL)
-		err(1, NULL);
-	session->reqid = reqid;
-	session->token = token;
-	session->listed = -1;
-	session->set_header = 0;
-	session->logged_mark = 0;
-	if (inet_ntop(xaddr->af, xaddr->af == AF_INET ?
-	    (void *)&(xaddr->addr) : (void *)&(xaddr->addr6), session->addr,
-	    sizeof(session->addr)) == NULL)
-		err(1, "inet_ntop");
-
-	RB_INSERT(dnsbl_sessions, &dnsbl_sessions, session);
-
-	if (xaddr->af == AF_INET)
-		addr = (u_char *)&(xaddr->addr);
+	if (ss->ss_family == AF_INET)
+		addr = (u_char *)(&(((struct sockaddr_in *)ss)->sin_addr));
 	else
-		addr = (u_char *)&(xaddr->addr6);
+		addr = (u_char *)(&(((struct sockaddr_in6 *)ss)->sin6_addr));
 	for (i = 0; i < nblacklists; i++) {
-		if (xaddr->af == AF_INET) {
+		if (ss->ss_family == AF_INET) {
 			if (snprintf(query, sizeof(query), "%u.%u.%u.%u.%s",
 			    addr[3], addr[2], addr[1], addr[0],
-			    blacklists[i]) >= sizeof(query))
+			    blacklists[i]) >= (int) sizeof(query))
 				errx(1, "Can't create query, domain too long");
-		} else if (xaddr->af == AF_INET6) {
+		} else if (ss->ss_family == AF_INET6) {
 			if (snprintf(query, sizeof(query), "%hhx.%hhx.%hhx.%hhx"
 			    ".%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx"
 			    ".%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx"
@@ -170,14 +141,14 @@ dnsbl_connect(char *type, int version, struct timespec *tm, char *direction,
 			    (u_char) (addr[2] & 0xf), (u_char) (addr[2] >> 4),
 			    (u_char) (addr[1] & 0xf), (u_char) (addr[1] >> 4),
 			    (u_char) (addr[0] & 0xf), (u_char) (addr[0] >> 4),
-			    blacklists[i]) >= sizeof(query))
+			    blacklists[i]) >= (int) sizeof(query))
 				errx(1, "Can't create query, domain too long");
 		} else
 			errx(1, "Invalid address family received");
 
-		session->query[i].query = gethostbyname_async(query, NULL);
-		session->query[i].event = event_asr_run(session->query[i].query,
-		    dnsbl_resolve, &(session->query[i]));
+		aq = gethostbyname_async(query, NULL);
+		session->query[i].event = event_asr_run(aq, dnsbl_resolve,
+		    &(session->query[i]));
 		session->query[i].blacklist = i;
 		session->query[i].session = session;
 	}
@@ -188,30 +159,27 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 {
 	struct dnsbl_query *query = arg;
 	struct dnsbl_session *session = query->session;
-	int i, blacklist;
+	size_t i;
 
 	query->resolved = 1;
 	query->event = NULL;
-	query->query = NULL;
 	if (result->ar_hostent != NULL) {
 		if (!markspam) {
-			smtp_filter_disconnect(session->reqid, session->token,
-			    "Listed at %s", blacklists[query->blacklist]);
+			osmtpd_filter_disconnect(session->ctx, "Listed at %s",
+			    blacklists[query->blacklist]);
 			warnx("%016"PRIx64" listed at %s: rejected",
-			    session->reqid, blacklists[query->blacklist]);
-			dnsbl_session_free(session);
+			    session->ctx->reqid, blacklists[query->blacklist]);
 		} else {
 			dnsbl_session_query_done(session);
 			session->listed = query->blacklist;
-			smtp_filter_proceed(session->reqid, session->token);
+			osmtpd_filter_proceed(session->ctx);
 			/* Delay logging until we have a message */
 		}
 		return;
 	}
 	if (result->ar_h_errno != HOST_NOT_FOUND) {
-		smtp_filter_disconnect(session->reqid, session->token,
-		    "DNS error on %s", blacklists[query->blacklist]);
-		dnsbl_session_free(session);
+		osmtpd_filter_disconnect(session->ctx, "DNS error on %s",
+		    blacklists[query->blacklist]);
 		return;
 	}
 
@@ -219,64 +187,44 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 		if (!session->query[i].resolved)
 			return;
 	}
-	smtp_filter_proceed(session->reqid, session->token);
-	warnx("%016"PRIx64" not listed", session->reqid);
+	osmtpd_filter_proceed(session->ctx);
+	warnx("%016"PRIx64" not listed", session->ctx->reqid);
 }
 
 void
-dnsbl_disconnect(char *type, int version, struct timespec *tm, char *direction,
-    char *phase, uint64_t reqid)
+dnsbl_begin(struct osmtpd_ctx *ctx, uint32_t msgid)
 {
-	struct dnsbl_session *session, search;
-
-	search.reqid = reqid;
-	if ((session = RB_FIND(dnsbl_sessions, &dnsbl_sessions, &search)) != NULL)
-		dnsbl_session_free(session);
-}
-
-void
-dnsbl_data(char *type, int version, struct timespec *tm, char *direction,
-    char *phase, uint64_t reqid, uint64_t token)
-{
-	struct dnsbl_session *session, search;
-
-	search.reqid = reqid;
-	session = RB_FIND(dnsbl_sessions, &dnsbl_sessions, &search);
+	struct dnsbl_session *session = ctx->local_session;
 
 	if (session->listed != -1) {
 		if (!session->logged_mark) {
 			warnx("%016"PRIx64" listed at %s: Marking as spam",
-			    session->reqid, blacklists[session->listed]);
+			    ctx->reqid, blacklists[session->listed]);
 			session->logged_mark = 1;
 		}
 		session->set_header = 1;
 	}
-	smtp_filter_proceed(reqid, token);
 }
 
 void
-dnsbl_dataline(char *type, int version, struct timespec *tm, char *direction,
-    char *phase, uint64_t reqid, uint64_t token, char *line)
+dnsbl_dataline(struct osmtpd_ctx *ctx, const char *line)
 {
-	struct dnsbl_session *session, search;
-
-	search.reqid = reqid;
-	session = RB_FIND(dnsbl_sessions, &dnsbl_sessions, &search);
+	struct dnsbl_session *session = ctx->local_session;
 
 	if (session->set_header) {
-		smtp_filter_dataline(reqid, token, "X-Spam: yes");
-		smtp_filter_dataline(reqid, token, "X-Spam-DNSBL: Listed at %s",
+		osmtpd_filter_dataline(ctx, "X-Spam: yes");
+		osmtpd_filter_dataline(ctx, "X-Spam-DNSBL: Listed at %s",
 		    blacklists[session->listed]);
 		session->set_header = 0;
 		
 	}
-	smtp_filter_dataline(reqid, token, "%s", line);
+	osmtpd_filter_dataline(ctx, "%s", line);
 }
 
 void
 dnsbl_session_query_done(struct dnsbl_session *session)
 {
-	int i;
+	size_t i;
 
 	for (i = 0; i < nblacklists; i++) {
 		if (!session->query[i].resolved) {
@@ -286,19 +234,32 @@ dnsbl_session_query_done(struct dnsbl_session *session)
 	}
 }
 
-void
-dnsbl_session_free(struct dnsbl_session *session)
+void *
+dnsbl_session_new(struct osmtpd_ctx *ctx)
 {
-	RB_REMOVE(dnsbl_sessions, &dnsbl_sessions, session);
+	struct dnsbl_session *session;
+
+	if ((session = calloc(1, sizeof(*session))) == NULL)
+		err(1, NULL);
+	if ((session->query = calloc(nblacklists, sizeof(*(session->query))))
+	    == NULL)
+		err(1, NULL);
+	session->listed = -1;
+	session->set_header = 0;
+	session->logged_mark = 0;
+	session->ctx = ctx;
+
+	return session;
+}
+
+void
+dnsbl_session_free(struct osmtpd_ctx *ctx, void *data)
+{
+	struct dnsbl_session *session = data;
+
 	dnsbl_session_query_done(session);
 	free(session->query);
 	free(session);
-}
-
-int
-dnsbl_session_cmp(struct dnsbl_session *s1, struct dnsbl_session *s2)
-{
-	return (s1->reqid < s2->reqid ? -1 : s1->reqid > s2->reqid);
 }
 
 __dead void
@@ -308,5 +269,3 @@ usage(void)
 	    getprogname());
 	exit(1);
 }
-
-RB_GENERATE(dnsbl_sessions, dnsbl_session, entry, dnsbl_session_cmp);
