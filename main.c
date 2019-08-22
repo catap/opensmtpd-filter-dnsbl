@@ -123,7 +123,8 @@ dnsbl_connect(struct osmtpd_ctx *ctx, const char *hostname,
 			if (snprintf(query, sizeof(query), "%u.%u.%u.%u.%s",
 			    addr[3], addr[2], addr[1], addr[0],
 			    blacklists[i]) >= (int) sizeof(query))
-				osmtpd_errx(1, "Can't create query, domain too long");
+				osmtpd_errx(1,
+				    "Can't create query, domain too long");
 		} else if (ss->ss_family == AF_INET6) {
 			if (snprintf(query, sizeof(query), "%hhx.%hhx.%hhx.%hhx"
 			    ".%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx"
@@ -146,7 +147,8 @@ dnsbl_connect(struct osmtpd_ctx *ctx, const char *hostname,
 			    (u_char) (addr[1] & 0xf), (u_char) (addr[1] >> 4),
 			    (u_char) (addr[0] & 0xf), (u_char) (addr[0] >> 4),
 			    blacklists[i]) >= (int) sizeof(query))
-				osmtpd_errx(1, "Can't create query, domain too long");
+				osmtpd_errx(1,
+				    "Can't create query, domain too long");
 		} else
 			osmtpd_errx(1, "Invalid address family received");
 
