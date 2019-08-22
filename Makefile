@@ -1,6 +1,7 @@
 #	$OpenBSD: Makefile,v 1.1 2018/04/26 13:57:13 eric Exp $
 
 PROG=	filter-dnsbl
+MAN=	filter-dnsbl.8
 BINDIR=	/usr/libexec/smtpd/
 SRCS+=	main.c
 
