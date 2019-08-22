@@ -22,7 +22,7 @@
 .Nd block senders based on dnsbl
 .Sh SYNOPSIS
 .Nm
-.Op Fl m
+.Op Fl mv
 .Ar blacklist
 .Op Ar ...
 .Sh DESCRIPTION
@@ -34,5 +34,8 @@ If the
 .Fl m
 flag is specified it will allow the message to continue, but it will be marked
 with an X-Spam and X-Spam-DNSBL header.
+For more verbose logging the
+.Fl v
+flag can be used.
 .Sh SEE ALSO
 .Xr smtpd 8
