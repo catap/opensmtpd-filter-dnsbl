@@ -1,5 +1,3 @@
-# $Revision$
-
 PROG=	filter-dnsbl
 MAN=	filter-dnsbl.8
 BINDIR=	/usr/libexec/smtpd/
