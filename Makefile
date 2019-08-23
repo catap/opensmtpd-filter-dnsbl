@@ -1,6 +1,8 @@
 PROG=	filter-dnsbl
 MAN=	filter-dnsbl.8
-BINDIR=	/usr/libexec/smtpd/
+BINDIR=	${LOCALBASE}/libexec/smtpd/
+MANDIR=	${LOCALBASE}/man/man
+
 SRCS+=	main.c
 
 CFLAGS+=-Wall -I${.CURDIR}
@@ -10,5 +12,8 @@ CFLAGS+=-Wshadow -Wpointer-arith -Wcast-qual
 CFLAGS+=-Wsign-compare
 LDADD+=	-levent -lopensmtpd
 DPADD=	${LIBEVENT}
+
+bindir:
+	${INSTALL} -d ${BINDIR}
 
 .include <bsd.prog.mk>
