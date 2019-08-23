@@ -14,6 +14,6 @@ LDADD+=	-levent -lopensmtpd
 DPADD=	${LIBEVENT}
 
 bindir:
-	${INSTALL} -d ${BINDIR}
+	${INSTALL} -d ${DESTDIR}${BINDIR}
 
 .include <bsd.prog.mk>
