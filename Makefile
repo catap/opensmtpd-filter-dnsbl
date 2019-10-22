@@ -1,3 +1,5 @@
+LOCALBASE?= /usr/local/
+
 PROG=	filter-dnsbl
 MAN=	filter-dnsbl.8
 BINDIR=	${LOCALBASE}/libexec/smtpd/

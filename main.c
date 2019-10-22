@@ -35,7 +35,7 @@ struct dnsbl_session;
 
 struct dnsbl_query {
 	struct event_asr *event;
-	int resolved;
+	int running;
 	int blacklist;
 	struct dnsbl_session *session;
 };
@@ -157,6 +157,7 @@ dnsbl_connect(struct osmtpd_ctx *ctx, const char *hostname,
 		    &(session->query[i]));
 		session->query[i].blacklist = i;
 		session->query[i].session = session;
+		session->query[i].running = 1;
 	}
 }
 
@@ -167,7 +168,7 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 	struct dnsbl_session *session = query->session;
 	size_t i;
 
-	query->resolved = 1;
+	query->running = 0;
 	query->event = NULL;
 	if (result->ar_hostent != NULL) {
 		if (!markspam) {
@@ -176,21 +177,22 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 			fprintf(stderr, "%016"PRIx64" listed at %s: rejected\n",
 			    session->ctx->reqid, blacklists[query->blacklist]);
 		} else {
-			dnsbl_session_query_done(session);
 			session->listed = query->blacklist;
 			osmtpd_filter_proceed(session->ctx);
 			/* Delay logging until we have a message */
 		}
+		dnsbl_session_query_done(session);
 		return;
 	}
 	if (result->ar_h_errno != HOST_NOT_FOUND) {
 		osmtpd_filter_disconnect(session->ctx, "DNS error on %s",
 		    blacklists[query->blacklist]);
+		dnsbl_session_query_done(session);
 		return;
 	}
 
 	for (i = 0; i < nblacklists; i++) {
-		if (!session->query[i].resolved)
+		if (session->query[i].running)
 			return;
 	}
 	osmtpd_filter_proceed(session->ctx);
@@ -235,9 +237,9 @@ dnsbl_session_query_done(struct dnsbl_session *session)
 	size_t i;
 
 	for (i = 0; i < nblacklists; i++) {
-		if (!session->query[i].resolved) {
+		if (session->query[i].running) {
 			event_asr_abort(session->query[i].event);
-			session->query[i].resolved = 1;
+			session->query[i].running = 0;
 		}
 	}
 }
