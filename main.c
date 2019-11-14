@@ -275,7 +275,6 @@ dnsbl_session_free(struct osmtpd_ctx *ctx, void *data)
 __dead void
 usage(void)
 {
-	fprintf(stderr, "usage: %s [-m] blacklist [...]\n",
-	    getprogname());
+	fprintf(stderr, "usage: filter-dnsbl [-m] blacklist [...]\n");
 	exit(1);
 }
