@@ -48,12 +48,13 @@ struct dnsbl_session {
 	struct osmtpd_ctx *ctx;
 };
 
-static char **blacklists = NULL;
+static const char **blacklists = NULL;
+static const char **printblacklists;
 static size_t nblacklists = 0;
 static int markspam = 0;
 static int verbose = 0;
 
-void usage(void);
+const char *dnsbl_printblacklist(const char *);
 void dnsbl_connect(struct osmtpd_ctx *, const char *,
     struct sockaddr_storage *);
 void dnsbl_begin(struct osmtpd_ctx *, uint32_t);
@@ -62,6 +63,7 @@ void dnsbl_resolve(struct asr_result *, void *);
 void dnsbl_session_query_done(struct dnsbl_session *);
 void *dnsbl_session_new(struct osmtpd_ctx *);
 void dnsbl_session_free(struct osmtpd_ctx *, void *);
+void usage(void);
 
 int
 main(int argc, char *argv[])
@@ -88,10 +90,14 @@ main(int argc, char *argv[])
 	if ((nblacklists = argc - optind) == 0)
 		osmtpd_errx(1, "No blacklist specified");
 
-	if ((blacklists = calloc(nblacklists, sizeof(*blacklists))) == NULL)
+	blacklists = calloc(nblacklists, sizeof(*blacklists));
+	printblacklists = calloc(nblacklists, sizeof(*printblacklists));
+	if (printblacklists == NULL || blacklists == NULL)
 		osmtpd_err(1, "malloc");
-	for (i = 0; i < nblacklists; i++)
+	for (i = 0; i < nblacklists; i++) {
 		blacklists[i] = argv[optind + i];
+		printblacklists[i] = dnsbl_printblacklist(argv[optind + i]);
+	}
 
 	osmtpd_register_filter_connect(dnsbl_connect);
 	osmtpd_local_session(dnsbl_session_new, dnsbl_session_free);
@@ -102,6 +108,18 @@ main(int argc, char *argv[])
 	osmtpd_run();
 
 	return 0;
+}
+
+const char *
+dnsbl_printblacklist(const char *blacklist)
+{
+	/* All of abusix is paid and has a key in the first spot */
+	if (strcasestr(blacklist, ".mail.abusix.zone") != NULL)
+		return strchr(blacklist, '.') + 1;
+	/* XXX assume dq.spamhaus.net is paid and has a key in the first spot */
+	if (strcasestr(blacklist, ".dq.spamhaus.net") != NULL)
+		return strchr(blacklist, '.') + 1;
+	return blacklist;
 }
 
 void
@@ -173,9 +191,10 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 	if (result->ar_hostent != NULL) {
 		if (!markspam) {
 			osmtpd_filter_disconnect(session->ctx, "Listed at %s",
-			    blacklists[query->blacklist]);
+			    printblacklists[query->blacklist]);
 			fprintf(stderr, "%016"PRIx64" listed at %s: rejected\n",
-			    session->ctx->reqid, blacklists[query->blacklist]);
+			    session->ctx->reqid,
+			    printblacklists[query->blacklist]);
 		} else {
 			session->listed = query->blacklist;
 			osmtpd_filter_proceed(session->ctx);
@@ -186,7 +205,7 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 	}
 	if (result->ar_h_errno != HOST_NOT_FOUND) {
 		osmtpd_filter_disconnect(session->ctx, "DNS error on %s",
-		    blacklists[query->blacklist]);
+		    printblacklists[query->blacklist]);
 		dnsbl_session_query_done(session);
 		return;
 	}
@@ -209,7 +228,8 @@ dnsbl_begin(struct osmtpd_ctx *ctx, uint32_t msgid)
 	if (session->listed != -1) {
 		if (!session->logged_mark) {
 			fprintf(stderr, "%016"PRIx64" listed at %s: Marking as "
-			    "spam\n", ctx->reqid, blacklists[session->listed]);
+			    "spam\n", ctx->reqid,
+			    printblacklists[session->listed]);
 			session->logged_mark = 1;
 		}
 		session->set_header = 1;
@@ -224,7 +244,7 @@ dnsbl_dataline(struct osmtpd_ctx *ctx, const char *line)
 	if (session->set_header) {
 		osmtpd_filter_dataline(ctx, "X-Spam: yes");
 		osmtpd_filter_dataline(ctx, "X-Spam-DNSBL: Listed at %s",
-		    blacklists[session->listed]);
+		    printblacklists[session->listed]);
 		session->set_header = 0;
 		
 	}
