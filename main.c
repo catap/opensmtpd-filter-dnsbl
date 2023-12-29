@@ -48,6 +48,7 @@ struct dnsbl_session {
 	struct osmtpd_ctx *ctx;
 };
 
+static int *iswhites;
 static const char **blacklists = NULL;
 static const char **printblacklists;
 static size_t nblacklists = 0;
@@ -68,8 +69,8 @@ void usage(void);
 int
 main(int argc, char *argv[])
 {
-	int ch;
-	size_t i;
+	int ch, w;
+	size_t i, j, records;
 
 	while ((ch = getopt(argc, argv, "mv")) != -1) {
 		switch (ch) {
@@ -87,16 +88,33 @@ main(int argc, char *argv[])
 	if (pledge("stdio dns", NULL) == -1)
 		osmtpd_err(1, "pledge");
 
-	if ((nblacklists = argc - optind) == 0)
+	if ((records = argc - optind) == 0)
 		osmtpd_errx(1, "No blacklist specified");
 
+	for (i = 0; i < records; i++) {
+		if (strcmp(argv[optind + i], "-w")) {
+			if (!markspam)
+				osmtpd_errx(1, "White lists requires -m");
+			else
+				nblacklists++;
+		}
+	}
+
+	iswhites = calloc(nblacklists, sizeof(int));
 	blacklists = calloc(nblacklists, sizeof(*blacklists));
 	printblacklists = calloc(nblacklists, sizeof(*printblacklists));
-	if (printblacklists == NULL || blacklists == NULL)
+	if (iswhites == NULL || printblacklists == NULL || blacklists == NULL)
 		osmtpd_err(1, "malloc");
-	for (i = 0; i < nblacklists; i++) {
-		blacklists[i] = argv[optind + i];
-		printblacklists[i] = dnsbl_printblacklist(argv[optind + i]);
+	for (i = 0, j = 0, w = 0; i < records; i++) {
+		if (w == 0 && strcmp(argv[optind + i], "-w") == 0) {
+			w = 1;
+			continue;
+		}
+		iswhites[j] = w;
+		blacklists[j] = argv[optind + i];
+		printblacklists[j] = dnsbl_printblacklist(argv[optind + i]);
+		w = 0;
+		j++;
 	}
 
 	osmtpd_register_filter_connect(dnsbl_connect);
@@ -246,17 +264,24 @@ dnsbl_begin(struct osmtpd_ctx *ctx, uint32_t msgid)
 void
 dnsbl_dataline(struct osmtpd_ctx *ctx, const char *line)
 {
-	size_t i;
+	size_t i, j, haswhite = 0;
 	struct dnsbl_session *session = ctx->local_session;
 
 	if (session->set_header) {
-		osmtpd_filter_dataline(ctx, "X-Spam: yes");
 		for (i = 0; i < nblacklists; i++) {
-			osmtpd_filter_dataline(ctx, "X-Spam-DNSBL: Listed at %s",
-				printblacklists[session->query[i].blacklist]);
+			j = session->query[i].blacklist;
+			haswhite |= iswhites[j];
+			if (iswhites[j])
+				osmtpd_filter_dataline(ctx,
+					"X-Spam-DNSWL: Listed at %s", printblacklists[j]);
+			else
+				osmtpd_filter_dataline(ctx,
+					"X-Spam-DNSBL: Listed at %s", printblacklists[j]);
+		}
+		if (!haswhite) {
+			osmtpd_filter_dataline(ctx, "X-Spam: yes");
 		}
 		session->set_header = 0;
-		
 	}
 	osmtpd_filter_dataline(ctx, "%s", line);
 }
@@ -304,6 +329,6 @@ dnsbl_session_free(struct osmtpd_ctx *ctx, void *data)
 __dead void
 usage(void)
 {
-	fprintf(stderr, "usage: filter-dnsbl [-m] blacklist [...]\n");
+	fprintf(stderr, "usage: filter-dnsbl [-mv] [[-w] blacklist]+\n");
 	exit(1);
 }
