@@ -37,11 +37,11 @@ struct dnsbl_query {
 	struct event_asr *event;
 	int running;
 	int blacklist;
+	int listed;
 	struct dnsbl_session *session;
 };
 
 struct dnsbl_session {
-	int listed;
 	int set_header;
 	int logged_mark;
 	struct dnsbl_query *query;
@@ -174,6 +174,7 @@ dnsbl_connect(struct osmtpd_ctx *ctx, const char *hostname,
 		session->query[i].event = event_asr_run(aq, dnsbl_resolve,
 		    &(session->query[i]));
 		session->query[i].blacklist = i;
+		session->query[i].listed = 0;
 		session->query[i].session = session;
 		session->query[i].running = 1;
 	}
@@ -196,9 +197,8 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 			    session->ctx->reqid,
 			    printblacklists[query->blacklist]);
 		} else {
-			session->listed = query->blacklist;
+			query->listed = 1;
 			osmtpd_filter_proceed(session->ctx);
-			/* Delay logging until we have a message */
 		}
 		dnsbl_session_query_done(session);
 		return;
@@ -214,6 +214,7 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 		if (session->query[i].running)
 			return;
 	}
+	dnsbl_session_query_done(session);
 	osmtpd_filter_proceed(session->ctx);
 	if (verbose)
 		fprintf(stderr, "%016"PRIx64" not listed\n",
@@ -223,28 +224,37 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 void
 dnsbl_begin(struct osmtpd_ctx *ctx, uint32_t msgid)
 {
+	size_t i;
 	struct dnsbl_session *session = ctx->local_session;
+	int logged_mark = session->logged_mark;
 
-	if (session->listed != -1) {
-		if (!session->logged_mark) {
-			fprintf(stderr, "%016"PRIx64" listed at %s: Marking as "
-			    "spam\n", ctx->reqid,
-			    printblacklists[session->listed]);
-			session->logged_mark = 1;
+	for (i = 0; i < nblacklists; i++) {
+		if (session->query[i].listed) {
+			if (!session->logged_mark) {
+				fprintf(stderr, "%016"PRIx64" listed at %s: Marking as "
+						"spam\n", ctx->reqid,
+						printblacklists[session->query[i].blacklist]);
+				logged_mark = 1;
+			}
+			session->set_header = 1;
 		}
-		session->set_header = 1;
 	}
+
+	session->logged_mark = logged_mark;
 }
 
 void
 dnsbl_dataline(struct osmtpd_ctx *ctx, const char *line)
 {
+	size_t i;
 	struct dnsbl_session *session = ctx->local_session;
 
 	if (session->set_header) {
 		osmtpd_filter_dataline(ctx, "X-Spam: yes");
-		osmtpd_filter_dataline(ctx, "X-Spam-DNSBL: Listed at %s",
-		    printblacklists[session->listed]);
+		for (i = 0; i < nblacklists; i++) {
+			osmtpd_filter_dataline(ctx, "X-Spam-DNSBL: Listed at %s",
+				printblacklists[session->query[i].blacklist]);
+		}
 		session->set_header = 0;
 		
 	}
@@ -274,7 +284,6 @@ dnsbl_session_new(struct osmtpd_ctx *ctx)
 	if ((session->query = calloc(nblacklists, sizeof(*(session->query))))
 	    == NULL)
 		osmtpd_err(1, "malloc");
-	session->listed = -1;
 	session->set_header = 0;
 	session->logged_mark = 0;
 	session->ctx = ctx;
