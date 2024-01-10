@@ -23,6 +23,7 @@
 .Sh SYNOPSIS
 .Nm
 .Op Fl mv
+.Op Fl w
 .Ar blacklist
 .Ar ...
 .Sh DESCRIPTION
@@ -34,10 +35,19 @@ and by default drops the connection if it is found.
 If the
 .Fl m
 flag is specified it will allow the message to continue, but it will be marked
-with an X-Spam and X-Spam-DNSBL header.
-For more verbose logging the
+with an X-Spam and X-Spam-DNSBL header. When
+.Fl w
+flag is specified before
+.Ar blacklist
+it treats that list as white list and doesn't add X-Spam header, instead it
+adds X-Spam-DNSWL header. For more verbose logging the
 .Fl v
 flag can be used.
+.Pp
+When DNS error happened it drops the connection, or adds X-Spam header with
+value unknown header if
+.Fl m
+is specified.
 .Pp
 Lists matching the IP address are echoed back to the sender.
 Paid services from Abusix and Spamhaus have their key stripped.
