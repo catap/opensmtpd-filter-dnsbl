@@ -38,6 +38,7 @@ struct dnsbl_query {
 	int running;
 	int blacklist;
 	int listed;
+	int error;
 	struct dnsbl_session *session;
 };
 
@@ -193,6 +194,7 @@ dnsbl_connect(struct osmtpd_ctx *ctx, const char *hostname,
 		    &(session->query[i]));
 		session->query[i].blacklist = i;
 		session->query[i].listed = 0;
+		session->query[i].error = 0;
 		session->query[i].session = session;
 		session->query[i].running = 1;
 	}
@@ -214,18 +216,25 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 			fprintf(stderr, "%016"PRIx64" listed at %s: rejected\n",
 			    session->ctx->reqid,
 			    printblacklists[query->blacklist]);
-		} else {
-			query->listed = 1;
-			osmtpd_filter_proceed(session->ctx);
+			dnsbl_session_query_done(session);
+			return;
 		}
-		dnsbl_session_query_done(session);
-		return;
-	}
-	if (result->ar_h_errno != HOST_NOT_FOUND) {
-		osmtpd_filter_disconnect(session->ctx, "DNS error on %s",
-		    printblacklists[query->blacklist]);
-		dnsbl_session_query_done(session);
-		return;
+		if (verbose)
+			fprintf(stderr, "%016"PRIx64" lListed at %s\n",
+					session->ctx->reqid, printblacklists[query->blacklist]);
+		query->listed = 1;
+	} else if (result->ar_h_errno != HOST_NOT_FOUND) {
+		if (!markspam) {
+			osmtpd_filter_disconnect(session->ctx, "DNS error on %s",
+		        printblacklists[query->blacklist]);
+			dnsbl_session_query_done(session);
+			return;
+		}
+		if (verbose)
+			fprintf(stderr, "%016"PRIx64" DNS error %d on %s\n",
+					session->ctx->reqid, result->ar_h_errno,
+					printblacklists[query->blacklist]);
+		query->error = 1;
 	}
 
 	for (i = 0; i < nblacklists; i++) {
@@ -235,8 +244,8 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 	dnsbl_session_query_done(session);
 	osmtpd_filter_proceed(session->ctx);
 	if (verbose)
-		fprintf(stderr, "%016"PRIx64" not listed\n",
-		    session->ctx->reqid);
+		fprintf(stderr, "%016"PRIx64" not listed on %s\n",
+		    session->ctx->reqid, printblacklists[query->blacklist]);
 }
 
 void
@@ -255,6 +264,8 @@ dnsbl_begin(struct osmtpd_ctx *ctx, uint32_t msgid)
 				logged_mark = 1;
 			}
 			session->set_header = 1;
+		} else if (session->query[i].error) {
+			session->set_header = 1;
 		}
 	}
 
@@ -264,11 +275,17 @@ dnsbl_begin(struct osmtpd_ctx *ctx, uint32_t msgid)
 void
 dnsbl_dataline(struct osmtpd_ctx *ctx, const char *line)
 {
-	size_t i, j, haswhite = 0;
+	size_t i, j, haswhite = 0, haserror = 0;
 	struct dnsbl_session *session = ctx->local_session;
 
 	if (session->set_header) {
 		for (i = 0; i < nblacklists; i++) {
+			if (session->query[i].error) {
+				haserror = 1;
+				continue;
+			}
+			if (!session->query[i].listed)
+				continue;
 			j = session->query[i].blacklist;
 			haswhite |= iswhites[j];
 			if (iswhites[j])
@@ -278,9 +295,10 @@ dnsbl_dataline(struct osmtpd_ctx *ctx, const char *line)
 				osmtpd_filter_dataline(ctx,
 					"X-Spam-DNSBL: Listed at %s", printblacklists[j]);
 		}
-		if (!haswhite) {
+		if (haserror)
+			osmtpd_filter_dataline(ctx, "X-Spam: unknown");
+		else if (!haswhite)
 			osmtpd_filter_dataline(ctx, "X-Spam: yes");
-		}
 		session->set_header = 0;
 	}
 	osmtpd_filter_dataline(ctx, "%s", line);
