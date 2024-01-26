@@ -298,9 +298,9 @@ dnsbl_dataline(struct osmtpd_ctx *ctx, const char *line)
 					"X-Spam-DNSBL: Listed at %s", printblacklists[j]);
 		}
 		if (haserror)
-			osmtpd_filter_dataline(ctx, "X-Spam: unknown");
+			osmtpd_filter_dataline(ctx, "X-Spam: Unknown");
 		else if (!haswhite)
-			osmtpd_filter_dataline(ctx, "X-Spam: yes");
+			osmtpd_filter_dataline(ctx, "X-Spam: Yes");
 		session->set_header = 0;
 	}
 	osmtpd_filter_dataline(ctx, "%s", line);
