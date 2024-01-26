@@ -281,6 +281,8 @@ dnsbl_dataline(struct osmtpd_ctx *ctx, const char *line)
 	if (session->set_header) {
 		for (i = 0; i < nblacklists; i++) {
 			if (session->query[i].error) {
+				osmtpd_filter_dataline(ctx,
+					"X-Spam-DNS: Error at %s", printblacklists[j]);
 				haserror = 1;
 				continue;
 			}
