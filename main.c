@@ -93,12 +93,12 @@ main(int argc, char *argv[])
 		osmtpd_errx(1, "No blacklist specified");
 
 	for (i = 0; i < records; i++) {
-		if (strcmp(argv[optind + i], "-w")) {
+		if (strcmp(argv[optind + i], "-w") == 0) {
 			if (!markspam)
 				osmtpd_errx(1, "White lists requires -m");
-			else
-				nblacklists++;
+			continue;
 		}
+		nblacklists++;
 	}
 
 	iswhites = calloc(nblacklists, sizeof(int));
