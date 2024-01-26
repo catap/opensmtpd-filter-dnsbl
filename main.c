@@ -220,7 +220,7 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 			return;
 		}
 		if (verbose)
-			fprintf(stderr, "%016"PRIx64" lListed at %s\n",
+			fprintf(stderr, "%016"PRIx64" listed at %s\n",
 					session->ctx->reqid, printblacklists[query->blacklist]);
 		query->listed = 1;
 	} else if (result->ar_h_errno != HOST_NOT_FOUND) {
@@ -230,10 +230,9 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 			dnsbl_session_query_done(session);
 			return;
 		}
-		if (verbose)
-			fprintf(stderr, "%016"PRIx64" DNS error %d on %s\n",
-					session->ctx->reqid, result->ar_h_errno,
-					printblacklists[query->blacklist]);
+		fprintf(stderr, "%016"PRIx64" DNS error %d on %s\n",
+				session->ctx->reqid, result->ar_h_errno,
+				printblacklists[query->blacklist]);
 		query->error = 1;
 	}
 
@@ -258,9 +257,10 @@ dnsbl_begin(struct osmtpd_ctx *ctx, uint32_t msgid)
 	for (i = 0; i < nblacklists; i++) {
 		if (session->query[i].listed) {
 			if (!session->logged_mark) {
-				fprintf(stderr, "%016"PRIx64" listed at %s: Marking as "
-						"spam\n", ctx->reqid,
-						printblacklists[session->query[i].blacklist]);
+				if (verbose)
+					fprintf(stderr, "%016"PRIx64" listed at %s: Marking as "
+							"spam\n", ctx->reqid,
+							printblacklists[session->query[i].blacklist]);
 				logged_mark = 1;
 			}
 			session->set_header = 1;
