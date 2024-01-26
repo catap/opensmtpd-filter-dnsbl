@@ -280,6 +280,7 @@ dnsbl_dataline(struct osmtpd_ctx *ctx, const char *line)
 
 	if (session->set_header) {
 		for (i = 0; i < nblacklists; i++) {
+			j = session->query[i].blacklist;
 			if (session->query[i].error) {
 				osmtpd_filter_dataline(ctx,
 					"X-Spam-DNS: Error at %s", printblacklists[j]);
@@ -288,7 +289,6 @@ dnsbl_dataline(struct osmtpd_ctx *ctx, const char *line)
 			}
 			if (!session->query[i].listed)
 				continue;
-			j = session->query[i].blacklist;
 			haswhite |= iswhites[j];
 			if (iswhites[j])
 				osmtpd_filter_dataline(ctx,
