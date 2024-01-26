@@ -157,7 +157,7 @@ dnsbl_connect(struct osmtpd_ctx *ctx, const char *hostname,
 		addr = (u_char *)(&(((struct sockaddr_in6 *)ss)->sin6_addr));
 	for (i = 0; i < nblacklists; i++) {
 		if (ss->ss_family == AF_INET) {
-			if (snprintf(query, sizeof(query), "%u.%u.%u.%u.%s",
+			if (snprintf(query, sizeof(query), "%u.%u.%u.%u.%s.",
 			    addr[3], addr[2], addr[1], addr[0],
 			    blacklists[i]) >= (int) sizeof(query))
 				osmtpd_errx(1,
@@ -166,7 +166,7 @@ dnsbl_connect(struct osmtpd_ctx *ctx, const char *hostname,
 			if (snprintf(query, sizeof(query), "%hhx.%hhx.%hhx.%hhx"
 			    ".%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx"
 			    ".%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx"
-			    ".%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%s",
+			    ".%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%s.",
 			    (u_char) (addr[15] & 0xf), (u_char) (addr[15] >> 4),
 			    (u_char) (addr[14] & 0xf), (u_char) (addr[14] >> 4),
 			    (u_char) (addr[13] & 0xf), (u_char) (addr[13] >> 4),
