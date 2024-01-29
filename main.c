@@ -276,7 +276,7 @@ dnsbl_begin(struct osmtpd_ctx *ctx, uint32_t msgid)
 void
 dnsbl_dataline(struct osmtpd_ctx *ctx, const char *line)
 {
-	size_t i, j, haswhite = 0, haserror = 0;
+	size_t i, j, haswhite = 0, haswerror = 0, listed = 0;
 	struct dnsbl_session *session = ctx->local_session;
 
 	if (session->set_header) {
@@ -285,11 +285,13 @@ dnsbl_dataline(struct osmtpd_ctx *ctx, const char *line)
 			if (session->query[i].error) {
 				osmtpd_filter_dataline(ctx,
 					"X-Spam-DNS: Error at %s", printblacklists[j]);
-				haserror = 1;
+				if (iswhites[j])
+					haswerror = 1;
 				continue;
 			}
 			if (!session->query[i].listed)
 				continue;
+			listed = 1;
 			haswhite |= iswhites[j];
 			if (iswhites[j])
 				osmtpd_filter_dataline(ctx,
@@ -298,10 +300,12 @@ dnsbl_dataline(struct osmtpd_ctx *ctx, const char *line)
 				osmtpd_filter_dataline(ctx,
 					"X-Spam-DNSBL: Listed at %s", printblacklists[j]);
 		}
-		if (haserror)
-			osmtpd_filter_dataline(ctx, "X-Spam: Unknown");
-		else if (!haswhite)
-			osmtpd_filter_dataline(ctx, "X-Spam: Yes");
+		if (!haswhite && listed) {
+			if (haswerror)
+				osmtpd_filter_dataline(ctx, "X-Spam: Unknown");
+			else
+				osmtpd_filter_dataline(ctx, "X-Spam: Yes");
+		}
 		session->set_header = 0;
 	}
 	osmtpd_filter_dataline(ctx, "%s", line);
