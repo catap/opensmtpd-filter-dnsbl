@@ -224,7 +224,9 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 			fprintf(stderr, "%016"PRIx64" listed at %s\n",
 					session->ctx->reqid, printblacklists[query->blacklist]);
 		query->listed = 1;
-	} else if (result->ar_h_errno != HOST_NOT_FOUND) {
+	} else if (result->ar_h_errno != HOST_NOT_FOUND
+		&& result->ar_h_errno != NO_DATA
+		&& result->ar_h_errno != NO_ADDRESS) {
 		if (!markspam) {
 			osmtpd_filter_disconnect(session->ctx, "DNS error on %s",
 		        printblacklists[query->blacklist]);
