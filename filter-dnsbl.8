@@ -25,6 +25,7 @@
 .Nm
 .Op Fl mv
 .Op Fl w
+.Op Fl d
 .Ar blacklist
 .Ar ...
 .Sh DESCRIPTION
@@ -40,8 +41,13 @@ with an X-Spam and X-Spam-DNSBL header. When
 .Fl w
 flag is specified before
 .Ar blacklist
-it treats that list as white list and doesn't add X-Spam header, instead it
-adds X-Spam-DNSWL header. For more verbose logging the
+it treats that list as white list and doesn't add X-Spam header, instead
+it adds X-Spam-DNSWL header. Additionally, when
+.Fl d
+flag is specified before
+.Ar blacklist
+it uses reverse DNS hostname instead IP address for loopkup. For more
+verbose logging the
 .Fl v
 flag can be used.
 .Pp
@@ -50,7 +56,7 @@ value Unknown and X-Spam-DNS with a list with cause an error when
 .Fl m
 is specified.
 .Pp
-Lists matching the IP address are echoed back to the sender.
+Lists matching the IP address or doamin are echoed back to the sender.
 Paid services from Abusix and Spamhaus have their key stripped.
 .Sh SEE ALSO
 .Xr smtpd 8

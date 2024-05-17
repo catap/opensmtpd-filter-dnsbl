@@ -20,6 +20,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <event.h>
+#include <limits.h>
 #include <inttypes.h>
 #include <netdb.h>
 #include <stdlib.h>
@@ -51,6 +52,7 @@ struct dnsbl_session {
 };
 
 static int *iswhites;
+static int *isdomain;
 static const char **blacklists = NULL;
 static const char **printblacklists;
 static size_t nblacklists = 0;
@@ -71,7 +73,7 @@ void usage(void);
 int
 main(int argc, char *argv[])
 {
-	int ch, w;
+	int ch, w, d;
 	size_t i, j, records;
 
 	while ((ch = getopt(argc, argv, "mv")) != -1) {
@@ -99,23 +101,33 @@ main(int argc, char *argv[])
 				osmtpd_errx(1, "White lists requires -m");
 			continue;
 		}
+		if (strcmp(argv[optind + i], "-d") == 0)
+			continue;
 		nblacklists++;
 	}
 
 	iswhites = calloc(nblacklists, sizeof(int));
+	isdomain = calloc(nblacklists, sizeof(int));
 	blacklists = calloc(nblacklists, sizeof(*blacklists));
 	printblacklists = calloc(nblacklists, sizeof(*printblacklists));
-	if (iswhites == NULL || printblacklists == NULL || blacklists == NULL)
+	if (iswhites == NULL || isdomain == NULL || printblacklists == NULL
+		|| blacklists == NULL)
 		osmtpd_err(1, "malloc");
-	for (i = 0, j = 0, w = 0; i < records; i++) {
+	for (i = 0, j = 0, w = 0, d = 0; i < records; i++) {
 		if (w == 0 && strcmp(argv[optind + i], "-w") == 0) {
 			w = 1;
 			continue;
 		}
+		if (d == 0 && strcmp(argv[optind + i], "-d") == 0) {
+			d = 1;
+			continue;
+		}
 		iswhites[j] = w;
+		isdomain[j] = d;
 		blacklists[j] = argv[optind + i];
 		printblacklists[j] = dnsbl_printblacklist(argv[optind + i]);
 		w = 0;
+		d = 0;
 		j++;
 	}
 
@@ -143,12 +155,12 @@ dnsbl_printblacklist(const char *blacklist)
 }
 
 void
-dnsbl_connect(struct osmtpd_ctx *ctx, const char *hostname,
+dnsbl_connect(struct osmtpd_ctx *ctx, const char *rdns,
     struct sockaddr_storage *ss)
 {
 	struct dnsbl_session *session = ctx->local_session;
 	struct asr_query *aq;
-	char query[255];
+	char query[HOST_NAME_MAX + 1];
 	u_char *addr;
 	size_t i;
 
@@ -157,7 +169,15 @@ dnsbl_connect(struct osmtpd_ctx *ctx, const char *hostname,
 	else
 		addr = (u_char *)(&(((struct sockaddr_in6 *)ss)->sin6_addr));
 	for (i = 0; i < nblacklists; i++) {
-		if (ss->ss_family == AF_INET) {
+		if (isdomain[i]) {
+			if (rdns == NULL || *rdns == '\0'
+				|| strcmp(rdns, "<unknown>") == 0)
+				continue;
+			if (snprintf(query, sizeof(query), "%s.%s.",
+			    rdns, blacklists[i]) >= (int) sizeof(query))
+				osmtpd_errx(1,
+				    "Can't create query, domain too long");
+		} else if (ss->ss_family == AF_INET) {
 			if (snprintf(query, sizeof(query), "%u.%u.%u.%u.%s.",
 			    addr[3], addr[2], addr[1], addr[0],
 			    blacklists[i]) >= (int) sizeof(query))
@@ -356,6 +376,6 @@ dnsbl_session_free(struct osmtpd_ctx *ctx, void *data)
 __dead void
 usage(void)
 {
-	fprintf(stderr, "usage: filter-dnsbl [-mv] [[-w] blacklist]+\n");
+	fprintf(stderr, "usage: filter-dnsbl [-mv] [[-w] [-d] list]+\n");
 	exit(1);
 }
