@@ -247,13 +247,22 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 	} else if (result->ar_h_errno != HOST_NOT_FOUND
 		&& result->ar_h_errno != NO_DATA
 		&& result->ar_h_errno != NO_ADDRESS) {
+
+		if (result->ar_h_errno == NETDB_INTERNAL)
+			fprintf(stderr, "%016"PRIx64" DNS error on %s: %s\n",
+				session->ctx->reqid,
+				printblacklists[query->blacklist],
+				strerror(result->ar_errno));
+
 		if (!markspam) {
 			osmtpd_filter_disconnect(session->ctx, "DNS error on %s",
 		        printblacklists[query->blacklist]);
 			dnsbl_session_query_done(session);
 			return;
 		}
-		fprintf(stderr, "%016"PRIx64" DNS error %d on %s\n",
+
+		if (result->ar_h_errno != NETDB_INTERNAL)
+			fprintf(stderr, "%016"PRIx64" DNS error %d on %s\n",
 				session->ctx->reqid, result->ar_h_errno,
 				printblacklists[query->blacklist]);
 		query->error = 1;
