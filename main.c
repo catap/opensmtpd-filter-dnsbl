@@ -228,6 +228,9 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 	struct dnsbl_session *session = query->session;
 	size_t i;
 
+	if (query->running == 0)
+		return;
+
 	query->running = 0;
 	query->event = NULL;
 	if (result->ar_hostent != NULL) {
@@ -349,8 +352,8 @@ dnsbl_session_query_done(struct dnsbl_session *session)
 
 	for (i = 0; i < nblacklists; i++) {
 		if (session->query[i].running) {
-			event_asr_abort(session->query[i].event);
 			session->query[i].running = 0;
+			event_asr_abort(session->query[i].event);
 		}
 	}
 }
