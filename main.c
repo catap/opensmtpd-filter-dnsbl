@@ -53,6 +53,7 @@ struct dnsbl_session {
 
 static int *iswhites;
 static int *isdomain;
+static const char **exptected;
 static const char **blacklists = NULL;
 static const char **printblacklists;
 static size_t nblacklists = 0;
@@ -103,11 +104,16 @@ main(int argc, char *argv[])
 		}
 		if (strcmp(argv[optind + i], "-d") == 0)
 			continue;
+		if (strcmp(argv[optind + i], "-e") == 0) {
+			i++;
+			continue;
+		}
 		nblacklists++;
 	}
 
 	iswhites = calloc(nblacklists, sizeof(int));
 	isdomain = calloc(nblacklists, sizeof(int));
+	exptected = calloc(nblacklists, sizeof(*exptected));
 	blacklists = calloc(nblacklists, sizeof(*blacklists));
 	printblacklists = calloc(nblacklists, sizeof(*printblacklists));
 	if (iswhites == NULL || isdomain == NULL || printblacklists == NULL
@@ -120,6 +126,12 @@ main(int argc, char *argv[])
 		}
 		if (d == 0 && strcmp(argv[optind + i], "-d") == 0) {
 			d = 1;
+			continue;
+		}
+		if (strcmp(argv[optind + i], "-e") == 0) {
+			i++;
+			if (i < records)
+				exptected[j] = argv[optind + i];
 			continue;
 		}
 		iswhites[j] = w;
@@ -226,7 +238,7 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 {
 	struct dnsbl_query *query = arg;
 	struct dnsbl_session *session = query->session;
-	size_t i;
+	size_t i, found;
 
 	if (query->running == 0)
 		return;
@@ -234,6 +246,21 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 	query->running = 0;
 	query->event = NULL;
 	if (result->ar_hostent != NULL) {
+		if (exptected[query->blacklist] != NULL) {
+			found = 0;
+
+			for (i = 0; result->ar_hostent->h_addr_list[i]; i++)
+				if (strcasecmp(
+						exptected[query->blacklist],
+						result->ar_hostent->h_addr_list[i])
+					== 0) {
+					found = 1;
+					break;
+				}
+
+			if (!found)
+				goto bypass;
+		}
 		if (!markspam) {
 			osmtpd_filter_disconnect(session->ctx, "Listed at %s",
 			    printblacklists[query->blacklist]);
@@ -271,6 +298,7 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 		query->error = 1;
 	}
 
+bypass:
 	for (i = 0; i < nblacklists; i++) {
 		if (session->query[i].running)
 			return;
@@ -388,6 +416,7 @@ dnsbl_session_free(struct osmtpd_ctx *ctx, void *data)
 __dead void
 usage(void)
 {
-	fprintf(stderr, "usage: filter-dnsbl [-mv] [[-w] [-d] list]+\n");
+	fprintf(stderr,
+		"usage: filter-dnsbl [-mv] [[-w] [-d] [-e IP] blacklist]+\n");
 	exit(1);
 }
