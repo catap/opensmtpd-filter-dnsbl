@@ -34,7 +34,11 @@
 looks up the IP address of the sender in the
 .Ar blacklist
 .Pq a domain name
-and, by default drops the connection if it is found.
+and, by default drops the connection if it is found. The expected IP
+address in the DNS response can be specified with the
+.Fl e
+argument before
+.Ar blacklist .
 If the
 .Fl m
 flag is specified, it will allow the message to continue, but such a
