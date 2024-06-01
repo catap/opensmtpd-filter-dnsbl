@@ -47,6 +47,8 @@ struct dnsbl_query {
 struct dnsbl_session {
 	int set_header;
 	int logged_mark;
+	int inheader;
+	int headers_done;
 	struct dnsbl_query *query;
 	struct osmtpd_ctx *ctx;
 };
@@ -370,6 +372,22 @@ dnsbl_dataline(struct osmtpd_ctx *ctx, const char *line)
 		}
 		session->set_header = 0;
 	}
+
+	if (line[0] == '\0')
+		session->headers_done = 1;
+
+	if (!session->headers_done) {
+		if (line[0] != ' ' && line[0] != '\t')
+			session->inheader = 0;
+
+		if (session->inheader && (line[0] == ' ' || line[0] == '\t'))
+			return;
+		else if (strncasecmp(line, "X-Spam", 6) == 0) {
+			session->inheader = 1;
+			return;
+		}
+	}
+
 	osmtpd_filter_dataline(ctx, "%s", line);
 }
 
@@ -398,6 +416,8 @@ dnsbl_session_new(struct osmtpd_ctx *ctx)
 		osmtpd_err(1, "malloc");
 	session->set_header = 0;
 	session->logged_mark = 0;
+	session->inheader = 0;
+	session->headers_done = 0;
 	session->ctx = ctx;
 
 	return session;
