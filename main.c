@@ -238,6 +238,7 @@ dnsbl_connect(struct osmtpd_ctx *ctx, const char *rdns,
 void
 dnsbl_resolve(struct asr_result *result, void *arg)
 {
+	struct in_addr *addr_name;
 	struct dnsbl_query *query = arg;
 	struct dnsbl_session *session = query->session;
 	size_t i, found;
@@ -251,14 +252,20 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 		if (exptected[query->blacklist] != NULL) {
 			found = 0;
 
-			for (i = 0; result->ar_hostent->h_addr_list[i]; i++)
+			if (result->ar_hostent->h_addrtype != AF_INET)
+				goto bypass;
+
+			for (i = 0; result->ar_hostent->h_addr_list[i]; i++) {
+				addr_name =
+					(struct in_addr *)result->ar_hostent->h_addr_list[i];
 				if (strcasecmp(
 						exptected[query->blacklist],
-						result->ar_hostent->h_addr_list[i])
+						inet_ntoa(*addr_name))
 					== 0) {
 					found = 1;
 					break;
 				}
+			}
 
 			if (!found)
 				goto bypass;
