@@ -31,31 +31,49 @@
 .Ar ...
 .Sh DESCRIPTION
 .Nm
-looks up the IP address of the sender at the
+looks up the IP address of the sender in the
 .Ar blacklist
 .Pq a domain name
-and by default drops the connection if it is found.
+and, by default drops the connection if it is found.
 If the
 .Fl m
-flag is specified it will allow the message to continue, but it will be marked
-with an X-Spam and X-Spam-DNSBL header. When
+flag is specified, it will allow the message to continue, but such a
+message will be marked with
+.Em X-Spam
+header with value
+.Em Yes ,
+and
+.Em X-Spam-DNSBL
+header containing a list, and any existing headers starting with
+.Em X-Spam
+will be stripped. If the
 .Fl w
 flag is specified before
-.Ar blacklist
-it treats that list as white list and doesn't add X-Spam header, instead
-it adds X-Spam-DNSWL header. Additionally, when
+.Ar blacklist ,
+this list is treated as white list and
+.Em X-Spam
+header isn't added, but
+.Em X-Spam-DNSWL
+header is added instead
+.Em X-Spam-DNSBL .
+Additionally, if the
 .Fl d
 flag is specified before
-.Ar blacklist
-it uses reverse DNS hostname instead IP address for loopkup. For more
-verbose logging the
+.Ar blacklist ,
+it will use reverse DNS hostname instead of IP address for loopkup. For
+more verbose logging, the
 .Fl v
 flag can be used.
 .Pp
-When DNS error happened it drops the connection, or adds X-Spam header with
-value Unknown and X-Spam-DNS with a list with cause an error when
+When DNS error happened it drops the connection, or adds
+.Em X-Spam
+header with value
+.Em Unknown
+and
+.Em X-Spam-DNS
+with a list with cause an error if the
 .Fl m
-is specified.
+flag is specified.
 .Pp
 Lists matching the IP address or doamin are echoed back to the sender.
 Paid services from Abusix and Spamhaus have their key stripped.
