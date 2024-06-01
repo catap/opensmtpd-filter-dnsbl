@@ -26,7 +26,7 @@
 .Op Fl mv
 .Op Fl w
 .Op Fl d
-.Op Fl e Ar IP
+.Op Fl e Ar IPv4
 .Ar blacklist
 .Ar ...
 .Sh DESCRIPTION
@@ -34,7 +34,7 @@
 looks up the IP address of the sender in the
 .Ar blacklist
 .Pq a domain name
-and, by default drops the connection if it is found. The expected IP
+and, by default drops the connection if it is found. The expected IPv4
 address in the DNS response can be specified with the
 .Fl e
 argument before
