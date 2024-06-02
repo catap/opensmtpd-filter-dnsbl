@@ -271,26 +271,31 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 				goto bypass;
 		}
 		if (!markspam) {
-			osmtpd_filter_disconnect(session->ctx, "Listed at %s",
+			osmtpd_filter_disconnect(session->ctx, "%s listed at %s",
+				isdomain[query->blacklist] ? "Domain" : "IP",
 			    printblacklists[query->blacklist]);
-			fprintf(stderr, "%016"PRIx64" listed at %s: rejected\n",
+			fprintf(stderr, "%016"PRIx64" %s listed at %s: rejected\n",
 			    session->ctx->reqid,
+				isdomain[query->blacklist] ? "Domain" : "IP",
 			    printblacklists[query->blacklist]);
 			dnsbl_session_query_done(session);
 			return;
 		}
 		if (verbose)
-			fprintf(stderr, "%016"PRIx64" listed at %s\n",
-					session->ctx->reqid, printblacklists[query->blacklist]);
+			fprintf(stderr, "%016"PRIx64" %s listed at %s\n",
+				session->ctx->reqid,
+				isdomain[query->blacklist] ? "Domain" : "IP",
+				printblacklists[query->blacklist]);
 		query->listed = 1;
 	} else if (result->ar_h_errno != HOST_NOT_FOUND
 		&& result->ar_h_errno != NO_DATA
 		&& result->ar_h_errno != NO_ADDRESS) {
 
 		if (result->ar_h_errno == NETDB_INTERNAL)
-			fprintf(stderr, "%016"PRIx64" DNS error on %s: %s\n",
+			fprintf(stderr, "%016"PRIx64" DNS error on %s (%s): %s\n",
 				session->ctx->reqid,
 				printblacklists[query->blacklist],
+				isdomain[query->blacklist] ? "Domain" : "IP",
 				strerror(result->ar_errno));
 
 		if (!markspam) {
@@ -315,8 +320,10 @@ bypass:
 	dnsbl_session_query_done(session);
 	osmtpd_filter_proceed(session->ctx);
 	if (verbose)
-		fprintf(stderr, "%016"PRIx64" not listed on %s\n",
-		    session->ctx->reqid, printblacklists[query->blacklist]);
+		fprintf(stderr, "%016"PRIx64" %s not listed on %s\n",
+		    session->ctx->reqid,
+			isdomain[query->blacklist] ? "Domain" : "IP",
+			printblacklists[query->blacklist]);
 }
 
 void
@@ -330,8 +337,10 @@ dnsbl_begin(struct osmtpd_ctx *ctx, uint32_t msgid)
 		if (session->query[i].listed) {
 			if (!session->logged_mark) {
 				if (verbose)
-					fprintf(stderr, "%016"PRIx64" listed at %s: Marking as "
-							"spam\n", ctx->reqid,
+					fprintf(stderr, "%016"PRIx64" %s listed at %s:"
+							" Marking as spam\n",
+							ctx->reqid,
+							isdomain[session->query->blacklist] ? "Domain" : "IP",
 							printblacklists[session->query[i].blacklist]);
 				logged_mark = 1;
 			}
@@ -355,7 +364,9 @@ dnsbl_dataline(struct osmtpd_ctx *ctx, const char *line)
 			j = session->query[i].blacklist;
 			if (session->query[i].error) {
 				osmtpd_filter_dataline(ctx,
-					"X-Spam-DNS: Error at %s", printblacklists[j]);
+					"X-Spam-DNS: Error at %s (%s)",
+					printblacklists[j],
+					isdomain[j] ? "Domain" : "IP");
 				if (iswhites[j])
 					haswerror = 1;
 				continue;
@@ -366,10 +377,14 @@ dnsbl_dataline(struct osmtpd_ctx *ctx, const char *line)
 			haswhite |= iswhites[j];
 			if (iswhites[j])
 				osmtpd_filter_dataline(ctx,
-					"X-Spam-DNSWL: Listed at %s", printblacklists[j]);
+					"X-Spam-DNSWL: %s listed at %s",
+					isdomain[j] ? "Domain" : "IP",
+					printblacklists[j]);
 			else
 				osmtpd_filter_dataline(ctx,
-					"X-Spam-DNSBL: Listed at %s", printblacklists[j]);
+					"X-Spam-DNSBL: %s listed at %s",
+					isdomain[j] ? "Domain" : "IP",
+					printblacklists[j]);
 		}
 		if (!haswhite && listed) {
 			if (haswerror)
