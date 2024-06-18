@@ -49,6 +49,7 @@ struct dnsbl_session {
 	int logged_mark;
 	int inheader;
 	int headers_done;
+	int running_queries;
 	struct dnsbl_query *query;
 	struct osmtpd_ctx *ctx;
 };
@@ -232,6 +233,7 @@ dnsbl_connect(struct osmtpd_ctx *ctx, const char *rdns,
 		session->query[i].error = 0;
 		session->query[i].session = session;
 		session->query[i].running = 1;
+		session->running_queries++;
 	}
 }
 
@@ -243,9 +245,10 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 	struct dnsbl_session *session = query->session;
 	size_t i, found;
 
-	if (query->running == 0)
+	if (query->running == 0 || query->session->running_queries == 0)
 		return;
 
+	query->session->running_queries--;
 	query->running = 0;
 	query->event = NULL;
 	if (result->ar_hostent != NULL) {
@@ -313,10 +316,8 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 	}
 
 bypass:
-	for (i = 0; i < nblacklists; i++) {
-		if (session->query[i].running)
-			return;
-	}
+	if (query->session->running_queries > 0)
+		return;
 	dnsbl_session_query_done(session);
 	osmtpd_filter_proceed(session->ctx);
 	if (verbose)
@@ -418,6 +419,8 @@ dnsbl_session_query_done(struct dnsbl_session *session)
 {
 	size_t i;
 
+	session->running_queries = 0;
+
 	for (i = 0; i < nblacklists; i++) {
 		if (session->query[i].running) {
 			session->query[i].running = 0;
@@ -436,10 +439,6 @@ dnsbl_session_new(struct osmtpd_ctx *ctx)
 	if ((session->query = calloc(nblacklists, sizeof(*(session->query))))
 		== NULL)
 		osmtpd_err(1, "malloc");
-	session->set_header = 0;
-	session->logged_mark = 0;
-	session->inheader = 0;
-	session->headers_done = 0;
 	session->ctx = ctx;
 
 	return session;
