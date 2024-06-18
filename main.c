@@ -64,7 +64,7 @@ static int verbose = 0;
 
 const char *dnsbl_printblacklist(const char *);
 void dnsbl_connect(struct osmtpd_ctx *, const char *,
-    struct sockaddr_storage *);
+	struct sockaddr_storage *);
 void dnsbl_begin(struct osmtpd_ctx *, uint32_t);
 void dnsbl_dataline(struct osmtpd_ctx *, const char *);
 void dnsbl_resolve(struct asr_result *, void *);
@@ -170,7 +170,7 @@ dnsbl_printblacklist(const char *blacklist)
 
 void
 dnsbl_connect(struct osmtpd_ctx *ctx, const char *rdns,
-    struct sockaddr_storage *ss)
+	struct sockaddr_storage *ss)
 {
 	struct dnsbl_session *session = ctx->local_session;
 	struct asr_query *aq;
@@ -188,45 +188,45 @@ dnsbl_connect(struct osmtpd_ctx *ctx, const char *rdns,
 				|| strcmp(rdns, "<unknown>") == 0)
 				continue;
 			if (snprintf(query, sizeof(query), "%s.%s.",
-			    rdns, blacklists[i]) >= (int) sizeof(query))
+				rdns, blacklists[i]) >= (int) sizeof(query))
 				osmtpd_errx(1,
-				    "Can't create query, domain too long");
+					"Can't create query, domain too long");
 		} else if (ss->ss_family == AF_INET) {
 			if (snprintf(query, sizeof(query), "%u.%u.%u.%u.%s.",
-			    addr[3], addr[2], addr[1], addr[0],
-			    blacklists[i]) >= (int) sizeof(query))
+				addr[3], addr[2], addr[1], addr[0],
+				blacklists[i]) >= (int) sizeof(query))
 				osmtpd_errx(1,
-				    "Can't create query, domain too long");
+					"Can't create query, domain too long");
 		} else if (ss->ss_family == AF_INET6) {
 			if (snprintf(query, sizeof(query), "%hhx.%hhx.%hhx.%hhx"
-			    ".%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx"
-			    ".%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx"
-			    ".%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%s.",
-			    (u_char) (addr[15] & 0xf), (u_char) (addr[15] >> 4),
-			    (u_char) (addr[14] & 0xf), (u_char) (addr[14] >> 4),
-			    (u_char) (addr[13] & 0xf), (u_char) (addr[13] >> 4),
-			    (u_char) (addr[12] & 0xf), (u_char) (addr[12] >> 4),
-			    (u_char) (addr[11] & 0xf), (u_char) (addr[11] >> 4),
-			    (u_char) (addr[10] & 0xf), (u_char) (addr[10] >> 4),
-			    (u_char) (addr[9] & 0xf), (u_char) (addr[9] >> 4),
-			    (u_char) (addr[8] & 0xf), (u_char) (addr[8] >> 4),
-			    (u_char) (addr[7] & 0xf), (u_char) (addr[8] >> 4),
-			    (u_char) (addr[6] & 0xf), (u_char) (addr[7] >> 4),
-			    (u_char) (addr[5] & 0xf), (u_char) (addr[5] >> 4),
-			    (u_char) (addr[4] & 0xf), (u_char) (addr[4] >> 4),
-			    (u_char) (addr[3] & 0xf), (u_char) (addr[3] >> 4),
-			    (u_char) (addr[2] & 0xf), (u_char) (addr[2] >> 4),
-			    (u_char) (addr[1] & 0xf), (u_char) (addr[1] >> 4),
-			    (u_char) (addr[0] & 0xf), (u_char) (addr[0] >> 4),
-			    blacklists[i]) >= (int) sizeof(query))
+				".%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx"
+				".%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx"
+				".%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%hhx.%s.",
+				(u_char) (addr[15] & 0xf), (u_char) (addr[15] >> 4),
+				(u_char) (addr[14] & 0xf), (u_char) (addr[14] >> 4),
+				(u_char) (addr[13] & 0xf), (u_char) (addr[13] >> 4),
+				(u_char) (addr[12] & 0xf), (u_char) (addr[12] >> 4),
+				(u_char) (addr[11] & 0xf), (u_char) (addr[11] >> 4),
+				(u_char) (addr[10] & 0xf), (u_char) (addr[10] >> 4),
+				(u_char) (addr[9] & 0xf), (u_char) (addr[9] >> 4),
+				(u_char) (addr[8] & 0xf), (u_char) (addr[8] >> 4),
+				(u_char) (addr[7] & 0xf), (u_char) (addr[8] >> 4),
+				(u_char) (addr[6] & 0xf), (u_char) (addr[7] >> 4),
+				(u_char) (addr[5] & 0xf), (u_char) (addr[5] >> 4),
+				(u_char) (addr[4] & 0xf), (u_char) (addr[4] >> 4),
+				(u_char) (addr[3] & 0xf), (u_char) (addr[3] >> 4),
+				(u_char) (addr[2] & 0xf), (u_char) (addr[2] >> 4),
+				(u_char) (addr[1] & 0xf), (u_char) (addr[1] >> 4),
+				(u_char) (addr[0] & 0xf), (u_char) (addr[0] >> 4),
+				blacklists[i]) >= (int) sizeof(query))
 				osmtpd_errx(1,
-				    "Can't create query, domain too long");
+					"Can't create query, domain too long");
 		} else
 			osmtpd_errx(1, "Invalid address family received");
 
 		aq = gethostbyname_async(query, NULL);
 		session->query[i].event = event_asr_run(aq, dnsbl_resolve,
-		    &(session->query[i]));
+			&(session->query[i]));
 		session->query[i].blacklist = i;
 		session->query[i].listed = 0;
 		session->query[i].error = 0;
@@ -273,11 +273,11 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 		if (!markspam) {
 			osmtpd_filter_disconnect(session->ctx, "%s listed at %s",
 				isdomain[query->blacklist] ? "Domain" : "IP",
-			    printblacklists[query->blacklist]);
+				printblacklists[query->blacklist]);
 			fprintf(stderr, "%016"PRIx64" %s listed at %s: rejected\n",
-			    session->ctx->reqid,
-				isdomain[query->blacklist] ? "Domain" : "IP",
-			    printblacklists[query->blacklist]);
+				session->ctx->reqid,
+				isdomain[query->blacklist] ? "omain" : "IP",
+				printblacklists[query->blacklist]);
 			dnsbl_session_query_done(session);
 			return;
 		}
@@ -300,7 +300,7 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 
 		if (!markspam) {
 			osmtpd_filter_disconnect(session->ctx, "DNS error on %s",
-		        printblacklists[query->blacklist]);
+				printblacklists[query->blacklist]);
 			dnsbl_session_query_done(session);
 			return;
 		}
@@ -321,7 +321,7 @@ bypass:
 	osmtpd_filter_proceed(session->ctx);
 	if (verbose)
 		fprintf(stderr, "%016"PRIx64" %s not listed on %s\n",
-		    session->ctx->reqid,
+			session->ctx->reqid,
 			isdomain[query->blacklist] ? "Domain" : "IP",
 			printblacklists[query->blacklist]);
 }
@@ -434,7 +434,7 @@ dnsbl_session_new(struct osmtpd_ctx *ctx)
 	if ((session = calloc(1, sizeof(*session))) == NULL)
 		osmtpd_err(1, "malloc");
 	if ((session->query = calloc(nblacklists, sizeof(*(session->query))))
-	    == NULL)
+		== NULL)
 		osmtpd_err(1, "malloc");
 	session->set_header = 0;
 	session->logged_mark = 0;
