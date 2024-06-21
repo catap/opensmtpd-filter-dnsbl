@@ -318,12 +318,15 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 bypass:
 	if (query->session->running_queries > 0)
 		return;
+
 	dnsbl_session_query_done(session);
 	osmtpd_filter_proceed(session->ctx);
+
 	if (verbose)
-		fprintf(stderr, "%016"PRIx64" %s not listed on %s\n",
+		fprintf(stderr, "%016"PRIx64" %s %slisted on %s\n",
 			session->ctx->reqid,
 			isdomain[query->blacklist] ? "Domain" : "IP",
+			query->listed ? "" : "not ",
 			printblacklists[query->blacklist]);
 }
 
