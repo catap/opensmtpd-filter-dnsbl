@@ -228,6 +228,8 @@ dnsbl_connect(struct osmtpd_ctx *ctx, const char *rdns,
 		aq = gethostbyname_async(query, NULL);
 		session->query[i].event = event_asr_run(aq, dnsbl_resolve,
 			&(session->query[i]));
+		if (session->query[i].event == NULL)
+			osmtpd_errx(1, "Can't run DNS query");
 		session->query[i].blacklist = i;
 		session->query[i].listed = 0;
 		session->query[i].error = 0;
