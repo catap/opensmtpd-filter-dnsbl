@@ -311,9 +311,11 @@ dnsbl_resolve(struct asr_result *result, void *arg)
 		}
 
 		if (result->ar_h_errno != NETDB_INTERNAL)
-			fprintf(stderr, "%016"PRIx64" DNS error %d on %s\n",
-				session->ctx->reqid, result->ar_h_errno,
-				printblacklists[query->blacklist]);
+			fprintf(stderr, "%016"PRIx64" DNS error on %s (%s): %s\n",
+				session->ctx->reqid,
+				printblacklists[query->blacklist],
+				isdomain[query->blacklist] ? "Domain" : "IP",
+				hstrerror(result->ar_h_errno));
 		query->error = 1;
 	}
 
