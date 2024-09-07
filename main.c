@@ -56,6 +56,7 @@ struct dnsbl_session {
 
 static int *iswhites;
 static int *isdomain;
+static long *scores;
 static const char **exptected;
 static const char **blacklists = NULL;
 static const char **printblacklists;
@@ -77,8 +78,10 @@ void usage(void);
 int
 main(int argc, char *argv[])
 {
-	int ch, w, d;
-	size_t i, j, records;
+	int     ch, w, d;
+	long    s;
+	char   *ep;
+	size_t  i, j, records;
 
 	while ((ch = getopt(argc, argv, "mv")) != -1) {
 		switch (ch) {
@@ -111,18 +114,23 @@ main(int argc, char *argv[])
 			i++;
 			continue;
 		}
+		if (strcmp(argv[optind + i], "-s") == 0) {
+			i++;
+			continue;
+		}
 		nblacklists++;
 	}
 
+	scores = calloc(nblacklists, sizeof(long));
 	iswhites = calloc(nblacklists, sizeof(int));
 	isdomain = calloc(nblacklists, sizeof(int));
 	exptected = calloc(nblacklists, sizeof(*exptected));
 	blacklists = calloc(nblacklists, sizeof(*blacklists));
 	printblacklists = calloc(nblacklists, sizeof(*printblacklists));
-	if (iswhites == NULL || isdomain == NULL || printblacklists == NULL
-		|| blacklists == NULL)
+	if (scores == NULL || iswhites == NULL || isdomain == NULL ||
+		printblacklists == NULL || blacklists == NULL)
 		osmtpd_err(1, "malloc");
-	for (i = 0, j = 0, w = 0, d = 0; i < records; i++) {
+	for (i = 0, j = 0, w = 0, d = 0, s = LONG_MIN; i < records; i++) {
 		if (w == 0 && strcmp(argv[optind + i], "-w") == 0) {
 			w = 1;
 			continue;
@@ -137,12 +145,37 @@ main(int argc, char *argv[])
 				exptected[j] = argv[optind + i];
 			continue;
 		}
+		if (strcmp(argv[optind + i], "-s") == 0) {
+			i++;
+			if (i >= records)
+				continue;
+			errno = 0;
+			s = strtol(argv[optind + i], &ep, 10);
+			if (*argv[optind + i] == '\0' || *ep != '\0' ||
+				(errno == ERANGE && (s == LONG_MIN || s == LONG_MAX)))
+				osmtpd_errx(1, "Invalid score: %s", argv[optind + i]);
+			continue;
+		}
+		if (s == LONG_MIN && w)
+			scores[j] = nblacklists;
+		else if (s == LONG_MIN)
+			scores[j] = 1;
+		else
+			scores[j] = s;
 		iswhites[j] = w;
 		isdomain[j] = d;
 		blacklists[j] = argv[optind + i];
 		printblacklists[j] = dnsbl_printblacklist(argv[optind + i]);
+
+		if (verbose)
+			fprintf(stderr, "Added list %s with score %ld as %s%s\n",
+				printblacklists[j], scores[j],
+				iswhites[j] ? "white " : "",
+				isdomain[j] ? "domain" : "IP");
+
 		w = 0;
 		d = 0;
+		s = LONG_MIN;
 		j++;
 	}
 
@@ -364,7 +397,8 @@ dnsbl_begin(struct osmtpd_ctx *ctx, uint32_t msgid)
 void
 dnsbl_dataline(struct osmtpd_ctx *ctx, const char *line)
 {
-	size_t i, j, haswhite = 0, haswerror = 0, listed = 0;
+	long score = 0, pscore = 0;
+	size_t i, j;
 	struct dnsbl_session *session = ctx->local_session;
 
 	if (session->set_header) {
@@ -376,30 +410,36 @@ dnsbl_dataline(struct osmtpd_ctx *ctx, const char *line)
 					printblacklists[j],
 					isdomain[j] ? "Domain" : "IP");
 				if (iswhites[j])
-					haswerror = 1;
+					pscore -= scores[j];
+				else
+					pscore += scores[j];
 				continue;
 			}
 			if (!session->query[i].listed)
 				continue;
-			listed = 1;
-			haswhite |= iswhites[j];
-			if (iswhites[j])
+			if (iswhites[j]) {
+				score -= scores[j];
+				pscore -= scores[j];
 				osmtpd_filter_dataline(ctx,
 					"X-Spam-DNSWL: %s listed at %s",
 					isdomain[j] ? "Domain" : "IP",
 					printblacklists[j]);
-			else
+			} else {
+				score += scores[j];
+				pscore += scores[j];
 				osmtpd_filter_dataline(ctx,
 					"X-Spam-DNSBL: %s listed at %s",
 					isdomain[j] ? "Domain" : "IP",
 					printblacklists[j]);
+			}
 		}
-		if (!haswhite && listed) {
-			if (haswerror)
-				osmtpd_filter_dataline(ctx, "X-Spam: Unknown");
-			else
-				osmtpd_filter_dataline(ctx, "X-Spam: Yes");
-		}
+		osmtpd_filter_dataline(ctx, "X-Spam-Score: %ld", score);
+		if (score != pscore)
+			osmtpd_filter_dataline(ctx, "X-Spam-PScore: %ld", pscore);
+		if ((score > 0 && pscore <= 0) || (score <= 0 && pscore > 0))
+			osmtpd_filter_dataline(ctx, "X-Spam: Unknown");
+		else if (score > 0)
+			osmtpd_filter_dataline(ctx, "X-Spam: Yes");
 		session->set_header = 0;
 	}
 
@@ -465,6 +505,6 @@ __dead void
 usage(void)
 {
 	fprintf(stderr,
-		"usage: filter-dnsbl [-mv] [[-w] [-d] [-e IP] blacklist]+\n");
+		"usage: filter-dnsbl [-mv] [[-w] [-d] [-e IP] [-s score] list]+\n");
 	exit(1);
 }

@@ -27,6 +27,7 @@
 .Op Fl w
 .Op Fl d
 .Op Fl e Ar IPv4
+.Op Fl s Ar score
 .Ar blacklist
 .Ar ...
 .Sh DESCRIPTION
@@ -60,7 +61,14 @@ header isn't added, but
 .Em X-Spam-DNSWL
 header is added instead
 .Em X-Spam-DNSBL .
-Additionally, if the
+If the
+.Fl s
+flag is specified, it will change score associeted with the list from 1
+for black list, and number of lists for the white ones. The
+.Em X-Spam
+header is added only when total score is more than zero. Black list
+increaes total score, and white list is decreasing it. Additionally, if
+the
 .Fl d
 flag is specified before
 .Ar blacklist ,
